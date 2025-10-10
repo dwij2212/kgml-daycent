@@ -12,15 +12,6 @@ class DayCentDataset(Dataset):
         self.columns = list(data_dict["columns"])
 
         self.init_conditions = self._load_initial_conditions(init_cond_path)
-
-        # Fit scaler only on Tmin/Tmax/Precip
-        temp_idx = [i for i, c in enumerate(self.columns) if c in ["Tmin", "Tmax", "Precip"]]
-        if apply_scaling:
-            self.scaler = StandardScaler()
-            self.scaler.fit(self.data[:, :, temp_idx].reshape(-1, len(temp_idx)))
-        else:
-            self.scaler = None
-
         self.year_emb_dim = year_emb_dim
 
         data_dict = np.load(output_npy_path, allow_pickle=True).item()
@@ -73,18 +64,7 @@ class DayCentDataset(Dataset):
         doy_sin = np.sin(2 * np.pi * doy / 365)
         doy_cos = np.cos(2 * np.pi * doy / 365)
 
-        # --- process temps/precip ---
-        t_idx = [self.columns.index(c) for c in ["Tmin", "Tmax", "Precip"]]
-        if self.scaler is not None:
-            seq[:, t_idx] = self.scaler.transform(seq[:, t_idx])
-
-        # --- drop old columns and replace with encoded ---
-        keep_idx = [i for i, c in enumerate(self.columns) if c not in ["doy", "Tmin", "Tmax", "Precip"]]
-        seq = np.concatenate([
-            seq[:, keep_idx], 
-            doy_sin[:, None], doy_cos[:, None], 
-            seq[:, t_idx]  # standardized Tmin/Tmax/Precip
-        ], axis=1)
+        seq = np.concatenate([seq, doy_sin[:, None], doy_cos[:, None]], axis=1)
 
         # --- initial site conditions ---
         init_cond = self.init_conditions.loc[pid.astype(int)].to_numpy().astype(np.float32)
