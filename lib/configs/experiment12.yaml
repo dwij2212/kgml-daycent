@@ -1,0 +1,66 @@
+# Experiment 12 Configuration
+# Example: Small test with 10 scenarios
+
+experiment_id: experiment12
+description: "Quick test experiment with 10 scenarios for debugging"
+
+data:
+  base_dir: /users/6/mehta423/daycent/data/SAS_KGML_090925
+  use_synthetic: true
+  
+  # Just 10 scenarios for quick testing
+  scenario_ids:
+    - '1'
+    - '10'
+    - '100'
+    - '1000'
+    - '2000'
+    - '3000'
+    - '4000'
+    - '5000'
+    - '6000'
+    - '7000'
+  
+  # Spatial split configuration
+  train_quadrants:
+    - 'Q1 (SW)'
+  test_quadrants:
+    - 'Q2 (SE)'
+    - 'Q3 (NW)'
+    - 'Q4 (NE)'
+  
+  max_workers: 4
+
+model:
+  hidden_dim: 64
+  num_layers: 1
+  dropout: 0.1
+
+training:
+  batch_size: 1024
+  epochs: 20
+  learning_rate: 0.01
+  device: cuda:2
+  
+  somsc_loss_weight: 1.0
+  yield_loss_weight: 1.0
+  
+  scheduler_factor: 0.5
+  scheduler_patience: 3
+  
+  num_scenarios: 10
+  train_ratio: 0.7
+  val_ratio: 0.2
+  test_ratio: 0.1
+  
+  random_seed: 42
+  num_workers: 2
+
+wandb:
+  enabled: false  # Disable for quick tests
+  project: daycent
+  name: experiment12/quick-test
+  notes: "Quick test with 10 scenarios"
+  tags:
+    - test
+    - debug
