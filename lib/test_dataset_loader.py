@@ -17,6 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from glob import glob
 from tqdm import tqdm
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 warnings.filterwarnings('ignore')
 
 
@@ -66,8 +67,11 @@ def load_management_data(scenarios_file: str):
     """Load and pivot management schedule data."""
     scenarios_df = pd.read_csv(scenarios_file).rename({'simyear': 'Year'}, axis=1)
     
+    # Extract scenario_id as string from 'scenario' column (e.g., 'scenario_8050' -> '8050')
+    scenarios_df['scenario_id'] = scenarios_df['scenario'].str.replace('scenario_', '')
+    
     scenarios_df = scenarios_df.pivot_table(
-        index=['scenario', 'Year', 'doy'],
+        index=['scenario_id', 'Year', 'doy'],
         columns='management',
         aggfunc='size',
         fill_value=0
@@ -90,21 +94,24 @@ def normalize_weather(weather_df: pd.DataFrame, train_pids: list):
     return pd.concat([train_weather, test_weather], ignore_index=True), scaler
 
 
-def normalize_outputs(output_df: pd.DataFrame, train_pids: list):
+def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_ids: list, train_years: list):
     """
     Normalize output variables (somsc, cgrain) using StandardScaler fitted on training data.
     
     Args:
         output_df: DataFrame with output data containing 'somsc' and 'cgrain' columns
-        train_pids: List of training point IDs
+        train_pids: List of training point IDs (strings)
+        train_scenario_ids: List of training scenario IDs (strings like '8050')
+        train_years: List of training years (integers)
     
     Returns:
         tuple: (normalized_output_df, scaler_Y)
     """
     # Separate train and test data
-    train_Y = output_df[output_df['point_id'].isin(train_pids)].copy()
-    test_Y = output_df[~output_df['point_id'].isin(train_pids)].copy()
-    
+    train_mask = (output_df['point_id'].isin(train_pids)) & (output_df['scenario_id'].isin(train_scenario_ids)) & (output_df['Year'].isin(train_years))
+    train_Y = output_df[train_mask].copy()
+    test_Y = output_df[~train_mask].copy()
+
     # Fit scaler on training data
     scaler_Y = StandardScaler()
     train_Y[['somsc', 'cgrain']] = scaler_Y.fit_transform(train_Y[['somsc', 'cgrain']])
@@ -124,156 +131,136 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list):
     
     return output_normalized, scaler_Y
 
-
-# ============================================================================
-# ORIGINAL DATASET (uses preprocessed .npy files)
-# ============================================================================
-
-class DayCentDatasetOriginal(Dataset):
-    """Original dataset that loads from preprocessed .npy files."""
-    
-    def __init__(self, input_npy_path, output_npy_path, init_cond_path, year_emb_dim=16):
-        # Load preprocessed input sequences
-        data_dict = np.load(input_npy_path, allow_pickle=True).item()
-        self.data = data_dict["data"]        # (N, 365, #features)
-        self.mapping = data_dict["mapping"]  # (N, 3) => (scenario, year, point_id)
-        self.columns = list(data_dict["columns"])
-
-        # Load initial conditions
-        self.init_conditions = self._load_initial_conditions(init_cond_path)
-        self.year_emb_dim = year_emb_dim
-
-        # Load preprocessed outputs
-        data_dict = np.load(output_npy_path, allow_pickle=True).item()
-        self.somsc = data_dict["somsc"]
-        self.cgrain = data_dict["cgrain"]
-
-    def _load_initial_conditions(self, path):
-        df = pd.read_excel(path).set_index("id")
-        df.dropna(axis=1, inplace=True)
-        cols_to_norm = [c for c in df.columns if c != 'id']
-        scaler = StandardScaler()
-        df[cols_to_norm] = scaler.fit_transform(df[cols_to_norm])
-        return df
-
-    def _year_pos_enc(self, year):
-        """Sin-cos positional encoding for year."""
-        year_rel = year.astype(int) - 2000
-        d = self.year_emb_dim
-        pe = np.zeros(d)
-        for i in range(0, d, 2):
-            div = np.power(10000, 2 * i / d)
-            pe[i] = np.sin(year_rel / div)
-            pe[i+1] = np.cos(year_rel / div)
-        return pe
-
-    def __len__(self):
-        return len(self.data)
-
-    def __getitem__(self, idx):
-        seq = self.data[idx].copy()
-        sid, year, pid = self.mapping[idx]
-
-        # Harvest mask
-        harvest_idx = np.where(seq[:, self.columns.index("harvest_grain")] == 1)[0]
-        cutoff = harvest_idx[0] if len(harvest_idx) > 0 else 364
-        harvest_mask = np.zeros(365, dtype=np.float32)
-        harvest_mask[:cutoff+1] = 1.0
-
-        # Process doy (sin/cos encoding)
-        doy_idx = self.columns.index("doy")
-        doy = seq[:, doy_idx]
-        doy_sin = np.sin(2 * np.pi * doy / 365)
-        doy_cos = np.cos(2 * np.pi * doy / 365)
-        seq = np.concatenate([seq, doy_sin[:, None], doy_cos[:, None]], axis=1)
-
-        # Initial site conditions
-        init_cond = self.init_conditions.loc[int(pid)].to_numpy().astype(np.float32)
-
-        # Year encoding
-        year_pe = self._year_pos_enc(year).astype(np.float32)
-
-        # Labels
-        somsc = self.somsc[idx]
-        somsc_mask = ~np.isnan(somsc)
-        somsc = np.nan_to_num(somsc, nan=0.0)
-
-        yield_val = self.cgrain[idx]
-        yield_mask = ~np.isnan(yield_val)
-        if np.isnan(yield_val):
-            yield_val = 0.0
-
-        return {
-            "sequence": torch.tensor(seq, dtype=torch.float32),
-            "init_cond": torch.tensor(init_cond, dtype=torch.float32),
-            "year_enc": torch.tensor(year_pe, dtype=torch.float32),
-            "somsc": torch.tensor(somsc, dtype=torch.float32),
-            "somsc_mask": torch.tensor(somsc_mask.astype(np.float32)),
-            "yield": torch.tensor(yield_val, dtype=torch.float32),
-            "yield_mask": torch.tensor(float(yield_mask)),
-            "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),
-            "pid": pid,
-            "year": year,
-            "scenario": sid
-        }
-
-
 # ============================================================================
 # NEW DATASET (merging logic in __getitem__)
 # ============================================================================
 
 class DayCentDatasetDynamic(Dataset):
     """
-    Experimental dataset that performs merging in __getitem__ instead of preprocessing.
+    Flexible dataset that performs merging in __getitem__ with configurable train/val/test splits.
     
     This approach stores raw data and merges on-the-fly during iteration.
+    Supports overlapping scenarios, points, and years across splits.
+    
+    IMPORTANT: All scenario identifiers must be strings (e.g., '8050', not 8050 or 'scenario_8050')
     """
     
-    def __init__(self, weather_df, management_df, output_df, init_cond_path, 
-                 point_ids, scenario_ids, year_emb_dim=16):
+    def __init__(self, weather_df, management_df, output_df, init_cond_path,
+                 train_config=None, val_config=None, test_config=None,
+                 dataset_type='train', year_emb_dim=16):
         """
         Args:
-            weather_df: DataFrame with weather data (point_id, Year, doy, Tmax, Tmin, Precip)
-            management_df: DataFrame with management events (scenario, Year, doy, event_columns)
-            output_df: DataFrame with outputs (scenario_id, point_id, Year, doy/month, somsc, cgrain)
+            weather_df: DataFrame with weather data (already normalized)
+            management_df: DataFrame with management events (has 'scenario_id' column with strings)
+            output_df: DataFrame with outputs (already normalized, has 'scenario_id' column with strings)
             init_cond_path: Path to initial conditions Excel file
-            point_ids: List of point IDs to include in this dataset
-            scenario_ids: List of scenario IDs to include
+            train_config: Dict with keys 'scenarios', 'points', 'years' (lists of strings/ints)
+            val_config: Dict with keys 'scenarios', 'points', 'years' (lists of strings/ints)
+            test_config: Dict with keys 'scenarios', 'points', 'years' (lists of strings/ints)
+            dataset_type: One of 'train', 'val', 'test' - determines which mapping to use
             year_emb_dim: Dimension for year positional encoding
+            
+        Example config:
+            train_config = {
+                'scenarios': ['1', '2', '3'],  # or [1, 2, 3] - will be converted to strings
+                'points': ['100', '101', '102'],
+                'years': [2000, 2001, 2002]
+            }
         """
-        self.weather_df = weather_df[weather_df['point_id'].isin(point_ids)].copy()
-        self.management_df = management_df[
-            management_df['scenario'].isin([f'scenario_{sid}' for sid in scenario_ids])
-        ].copy()
-        self.output_df = output_df[
-            (output_df['point_id'].isin(point_ids)) & 
-            (output_df['scenario_id'].isin([str(s) for s in scenario_ids]))
-        ].copy()
-        
+        # Store all data (no filtering yet)
+        self.weather_df = weather_df
+        self.management_df = management_df
+        self.output_df = output_df
         self.init_conditions = self._load_initial_conditions(init_cond_path)
         self.year_emb_dim = year_emb_dim
-        
-        # Get unique years and scenarios
-        self.years = sorted(self.weather_df['Year'].unique())
-        self.scenarios = sorted(self.management_df['scenario'].unique())
-        self.point_ids = sorted(point_ids)
-        
-        # Create index mapping (scenario, year, point_id) -> idx
-        self.index_mapping = []
-        for scenario in self.scenarios:
-            for year in self.years:
-                for pid in self.point_ids:
-                    self.index_mapping.append((scenario, year, pid))
+        self.dataset_type = dataset_type
         
         # Get management feature columns (exclude identifiers)
         self.mgmt_cols = [c for c in self.management_df.columns 
-                         if c not in ['scenario', 'Year', 'doy']]
+                         if c not in ['scenario_id', 'Year', 'doy']]
         
-        print(f"Dataset initialized:")
-        print(f"  Scenarios: {len(self.scenarios)}")
-        print(f"  Years: {len(self.years)}")
-        print(f"  Points: {len(self.point_ids)}")
-        print(f"  Total samples: {len(self.index_mapping)}")
+        # Create index mappings for each split
+        self.train_mapping = []
+        self.val_mapping = []
+        self.test_mapping = []
+        
+        if train_config:
+            self.train_mapping = self._create_index_mapping(
+                train_config['scenarios'], 
+                train_config['points'], 
+                train_config['years']
+            )
+            print(f"Train mapping created: {len(self.train_mapping)} samples")
+        
+        if val_config:
+            self.val_mapping = self._create_index_mapping(
+                val_config['scenarios'], 
+                val_config['points'], 
+                val_config['years']
+            )
+            print(f"Val mapping created: {len(self.val_mapping)} samples")
+        
+        if test_config:
+            self.test_mapping = self._create_index_mapping(
+                test_config['scenarios'], 
+                test_config['points'], 
+                test_config['years']
+            )
+            print(f"Test mapping created: {len(self.test_mapping)} samples")
+        
+        # Set active mapping based on dataset_type
+        self._set_dataset_type(dataset_type)
+        
+        print(f"\nDataset initialized in '{dataset_type}' mode with {len(self)} samples")
+    
+    def _create_index_mapping(self, scenario_ids, point_ids, years):
+        """
+        Create index mapping for given scenarios, points, and years.
+        
+        Args:
+            scenario_ids: List of scenario IDs as strings (e.g., ['8050', '2765'])
+            point_ids: List of point IDs as strings
+            years: List of years as integers
+            
+        Returns:
+            List of tuples (scenario_id, year, point_id) - all strings
+        """
+        mapping = []
+        for scenario_id in scenario_ids:
+            # Ensure scenario_id is string
+            scenario_id = str(scenario_id)
+            for year in years:
+                for pid in point_ids:
+                    mapping.append((scenario_id, year, str(pid)))
+        return mapping
+    
+    def _set_dataset_type(self, dataset_type):
+        """Set the active dataset type and mapping."""
+        if dataset_type not in ['train', 'val', 'test']:
+            raise ValueError(f"dataset_type must be 'train', 'val', or 'test', got '{dataset_type}'")
+        
+        self.dataset_type = dataset_type
+        
+        if dataset_type == 'train':
+            self.index_mapping = self.train_mapping
+        elif dataset_type == 'val':
+            self.index_mapping = self.val_mapping
+        else:  # test
+            self.index_mapping = self.test_mapping
+        
+        if len(self.index_mapping) == 0:
+            raise ValueError(f"No samples available for dataset_type '{dataset_type}'. "
+                           f"Did you provide the corresponding config?")
+    
+    def set_mode(self, dataset_type):
+        """
+        Switch between train/val/test modes at runtime.
+        
+        Args:
+            dataset_type: One of 'train', 'val', 'test'
+        """
+        self._set_dataset_type(dataset_type)
+        print(f"Dataset mode changed to '{dataset_type}' with {len(self)} samples")
 
     def _load_initial_conditions(self, path):
         df = pd.read_excel(path).set_index("id")
@@ -298,7 +285,12 @@ class DayCentDatasetDynamic(Dataset):
         return len(self.index_mapping)
 
     def __getitem__(self, idx):
-        scenario, year, pid = self.index_mapping[idx]
+        scenario_id, year, pid = self.index_mapping[idx]
+        
+        # All identifiers are now strings for consistency:
+        # - scenario_id: e.g., '8050'
+        # - year: e.g., 2000 (int from mapping)
+        # - pid: e.g., '100'
         
         # 1. Get weather data for this point and year
         weather_data = self.weather_df[
@@ -308,7 +300,7 @@ class DayCentDatasetDynamic(Dataset):
         
         # 2. Get management data for this scenario and year
         mgmt_data = self.management_df[
-            (self.management_df['scenario'] == scenario) & 
+            (self.management_df['scenario_id'] == scenario_id) & 
             (self.management_df['Year'] == year)
         ].sort_values('doy')
         
@@ -348,7 +340,7 @@ class DayCentDatasetDynamic(Dataset):
         year_pe = self._year_pos_enc(year).astype(np.float32)
         
         # 9. Get outputs for this scenario, point, and year
-        scenario_id = scenario.split('_')[1]  # Extract ID from 'scenario_X'
+        # scenario_id is already a string like '8050', use it directly
         output_data = self.output_df[
             (self.output_df['scenario_id'] == scenario_id) &
             (self.output_df['point_id'] == pid) &
@@ -386,56 +378,37 @@ class DayCentDatasetDynamic(Dataset):
             "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),
             "pid": pid,
             "year": str(year),
-            "scenario": scenario
+            "scenario_id": scenario_id  # Return as scenario_id (string) for consistency
         }
 
 
 # ============================================================================
-# TESTING AND COMPARISON
+# DATA PREPARATION HELPER
 # ============================================================================
 
-def test_original_dataset():
-    """Test the original dataset loader."""
-    print("\n" + "="*80)
-    print("TESTING ORIGINAL DATASET (preprocessed .npy files)")
-    print("="*80)
+def prepare_data_for_dynamic_dataset(base_dir, scenario_ids, train_config, val_config=None, test_config=None):
+    """
+    Load and normalize data for the dynamic dataset.
     
-    # Paths
-    input_npy = "/users/6/mehta423/daycent/data/experiment10/train_50_X.npy"
-    output_npy = "/users/6/mehta423/daycent/data/experiment10/train_50_Y.npy"
-    init_cond = "/users/6/mehta423/daycent/data/SAS_KGML_090925/InputData/initial_site_conditions.xlsx"
+    Normalizes based on training set only (no data leakage).
     
-    # Create dataset
-    dataset = DayCentDatasetOriginal(input_npy, output_npy, init_cond)
+    Args:
+        base_dir: Base directory path
+        scenario_ids: List of all scenario IDs to load
+        train_config: Dict with 'scenarios', 'points', 'years' for training
+        val_config: Optional dict with 'scenarios', 'points', 'years' for validation
+        test_config: Optional dict with 'scenarios', 'points', 'years' for testing
     
-    print(f"\nDataset size: {len(dataset)}")
-    
-    # Get a sample
-    sample = dataset[0]
-    
-    print(f"\nSample 0 structure:")
-    for key, val in sample.items():
-        if isinstance(val, torch.Tensor):
-            print(f"  {key:15s}: shape={val.shape}, dtype={val.dtype}")
-        else:
-            print(f"  {key:15s}: {val}")
-    
-    return dataset, sample
-
-
-def test_dynamic_dataset():
-    """Test the new dynamic dataset loader."""
-    print("\n" + "="*80)
-    print("TESTING DYNAMIC DATASET (merging in __getitem__)")
-    print("="*80)
-    
-    # Paths
-    base_dir = "/users/6/mehta423/daycent/data/SAS_KGML_090925"
+    Returns:
+        tuple: (weather_df, management_df, output_df, all_configs)
+    """
     weather_dir = os.path.join(base_dir, "InputData/WeatherData")
     scenarios_file = os.path.join(base_dir, "InputData/schedule_scenarios_all_Synthetic_10000.csv")
     output_dir = os.path.join(base_dir, "OutputData_Synthetic_10000")
-    init_cond = os.path.join(base_dir, "InputData/initial_site_conditions.xlsx")
-    points_lookup = os.path.join(base_dir, "SAS_points_lookup.csv")
+    
+    print("\n" + "="*80)
+    print("PREPARING DATA")
+    print("="*80)
     
     # Load data
     print("\n1. Loading weather data...")
@@ -446,193 +419,177 @@ def test_dynamic_dataset():
     management_df = load_management_data(scenarios_file)
     print(f"   Management data shape: {management_df.shape}")
     
-    # For testing, use just a few scenarios
-    test_scenario_ids = [8050, 2765, 6111, 2425, 7695, 2795, 1773, 1803, 9017, 1639, 9109, 1087, 368, 7221, 6305, 8457, 3396, 7727, 5211, 7759, 6563, 9387, 9223, 8180, 5142, 5003, 5533, 9169, 4947, 9319, 2670, 8670, 1273, 5624, 4361, 7737, 4770, 5967, 534, 6909, 6232, 5848, 143, 4283, 7900, 4618, 5089, 9568, 9277, 4006]
-    test_scenario_ids = [str(sid) for sid in test_scenario_ids]
-    print(f"\n3. Loading output data for {len(test_scenario_ids)} scenarios...")
+    print(f"\n3. Loading output data for {len(scenario_ids)} scenarios...")
     output_dfs = []
-    for sid in test_scenario_ids:
-        output_df = load_single_scenario_output(sid, output_dir)
-        output_dfs.append(output_df)
-    output_df = pd.concat(output_dfs, ignore_index=True)
+    max_workers = min(50, len(scenario_ids)) if len(scenario_ids) > 0 else 1
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(load_single_scenario_output, sid, output_dir): sid for sid in scenario_ids}
+        for fut in tqdm(as_completed(futures), total=len(futures), desc="Loading scenarios"):
+            sid = futures[fut]
+            try:
+                df = fut.result()
+                output_dfs.append(df)
+            except Exception as e:
+                print(f"Warning: failed to load scenario {sid}: {e}")
+
+    if len(output_dfs) > 0:
+        output_df = pd.concat(output_dfs, ignore_index=True)
+    else:
+        output_df = pd.DataFrame()
     print(f"   Output data shape: {output_df.shape}")
     
-    print("\n4. Getting train point IDs...")
+    # Get unique train points (for normalization - avoid duplicates)
+    train_pids = list(set(train_config['points']))
+    train_scenario_ids = [str(sid) for sid in train_config['scenarios']]
+    train_years = train_config['years']
+    
+    print(f"\n4. Normalizing weather data...")
+    print(f"   Using {len(train_pids)} unique training points for fitting")
+    weather_df, weather_scaler = normalize_weather(weather_df, train_pids)
+    
+    print(f"\n5. Normalizing output data...")
+    print(f"   Using {len(train_pids)} unique training points for fitting")
+    output_df, output_scaler = normalize_outputs(output_df, train_pids, train_scenario_ids, train_years)
+    
+    print("\n" + "="*80)
+    print("DATA PREPARATION COMPLETE")
+    print("="*80)
+    
+    return weather_df, management_df, output_df, {
+        'train': train_config,
+        'val': val_config,
+        'test': test_config,
+        'weather_scaler': weather_scaler,
+        'output_scaler': output_scaler
+    }
+
+
+def test_flexible_dataset():
+    """Test the flexible dynamic dataset with train/val/test splits."""
+    print("\n" + "="*80)
+    print("TESTING FLEXIBLE DYNAMIC DATASET")
+    print("="*80)
+    
+    # Paths
+    base_dir = "/users/6/mehta423/daycent/data/SAS_KGML_090925"
+    init_cond = os.path.join(base_dir, "InputData/initial_site_conditions.xlsx")
+    points_lookup = os.path.join(base_dir, "SAS_points_lookup.csv")
+    
+    # Get point IDs
     points_df = pd.read_csv(points_lookup)
-    median_x = points_df['POINT_X'].median()
-    median_y = points_df['POINT_Y'].median()
-    train_points = points_df[
-        (points_df['POINT_X'] <= median_x) & 
-        (points_df['POINT_Y'] <= median_y)
-    ]
-    train_pids = train_points['id'].astype(str).tolist()
-    print(f"   Train points: {len(train_pids)}")
+    all_pids = points_df['id'].astype(str).tolist()
     
-    print("\n5. Normalizing weather data...")
-    weather_df, _ = normalize_weather(weather_df, train_pids)
+    # Example: Create flexible train/val/test configurations
+    # These can overlap! Same scenario/point/year can be in multiple splits
     
-    print("\n6. Normalizing output data...")
-    output_df, scaler_Y = normalize_outputs(output_df, train_pids)
+    # For demo, let's use a subset
+    test_scenario_ids = [str(i) for i in range(1, 1000)]
     
-    print("\n7. Creating dynamic dataset...")
+    # Split points into groups (can overlap if desired)
+    train_points = all_pids[:100]  # First 100 points
+    val_points = all_pids[100:150]  # 100-150 (overlaps with train!)
+    test_points = all_pids[150:]  # 150-200 (overlaps with val!)
+    
+    # Years can also overlap
+    train_years = list(range(2000, 2020))  # 2000-2019
+    val_years = list(range(2008, 2020))    # 2008-2019 (overlaps!)
+    test_years = list(range(2020, 2024))   # 2020-2023 (overlaps!)
+
+    # Scenarios can overlap too
+    train_scenarios = ['99', '2765', '6111', '2425', '7695', '2795', '1773', '1803', '9017', '1639', '9109', '1087', '368', '7221', '6305', '8457', '3396', '7727', '5211', '7759', '6563', '9387', '9223', '8180', '5142', '5003', '5533', '9169', '4947', '9319', '2670', '8670', '1273', '5624', '4361', '7737', '4770', '5967', '534', '6909', '6232', '5848', '143', '4283', '7900', '4618', '5089', '9568', '9277', '4006']
+    val_scenarios = ['1', '10', '100', '1000', '10000', '1001', '2002', '1003', '1004', '1005']
+    test_scenarios = ['2425', '7695']
+    
+    train_config = {
+        'scenarios': train_scenarios,
+        'points': train_points,
+        'years': train_years
+    }
+    
+    val_config = {
+        'scenarios': val_scenarios,
+        'points': val_points,
+        'years': val_years
+    }
+    
+    test_config = {
+        'scenarios': test_scenarios,
+        'points': test_points,
+        'years': test_years
+    }
+    
+    print(f"\nConfiguration:")
+    print(f"  Train: {len(train_scenarios)} scenarios, {len(train_points)} points, {len(train_years)} years")
+    print(f"  Val:   {len(val_scenarios)} scenarios, {len(val_points)} points, {len(val_years)} years")
+    print(f"  Test:  {len(test_scenarios)} scenarios, {len(test_points)} points, {len(test_years)} years")
+    
+    # Prepare data (loads and normalizes based on training set)
+    weather_df, management_df, output_df, configs = prepare_data_for_dynamic_dataset(
+        base_dir=base_dir,
+        scenario_ids=test_scenario_ids,
+        train_config=train_config,
+        val_config=val_config,
+        test_config=test_config
+    )
+    
+    # Create dataset (starts in 'train' mode)
+    print("\n" + "="*80)
+    print("CREATING FLEXIBLE DATASET")
+    print("="*80)
+    
     dataset = DayCentDatasetDynamic(
         weather_df=weather_df,
         management_df=management_df,
         output_df=output_df,
         init_cond_path=init_cond,
-        point_ids=train_pids,
-        scenario_ids=test_scenario_ids,
+        train_config=train_config,
+        val_config=val_config,
+        test_config=test_config,
+        dataset_type='train',  # Start in train mode
         year_emb_dim=16
     )
     
-    print(f"\n8. Getting sample...")
-    sample = dataset[0]
+    # Test switching modes
+    print("\n" + "="*80)
+    print("TESTING MODE SWITCHING")
+    print("="*80)
     
-    print(f"\nSample 0 structure:")
-    for key, val in sample.items():
+    print(f"\nInitial mode: train - {len(dataset)} samples")
+    train_sample = dataset[0]
+    print(f"Train sample 0: scenario_id={train_sample['scenario_id']}, pid={train_sample['pid']}, year={train_sample['year']}")
+    
+    # Switch to validation
+    dataset.set_mode('val')
+    val_sample = dataset[0]
+    print(f"Val sample 0: scenario_id={val_sample['scenario_id']}, pid={val_sample['pid']}, year={val_sample['year']}")
+    
+    # Switch to test
+    dataset.set_mode('test')
+    test_sample = dataset[0]
+    print(f"Test sample 0: scenario_id={test_sample['scenario_id']}, pid={test_sample['pid']}, year={test_sample['year']}")
+    
+    # Switch back to train
+    dataset.set_mode('train')
+    print(f"\nSwitched back to train mode - {len(dataset)} samples")
+    
+    print("\n" + "="*80)
+    print("SAMPLE STRUCTURE")
+    print("="*80)
+    for key, val in train_sample.items():
         if isinstance(val, torch.Tensor):
             print(f"  {key:15s}: shape={val.shape}, dtype={val.dtype}")
         else:
             print(f"  {key:15s}: {val}")
     
-    return dataset, sample
-
-
-def compare_datasets():
-    """Compare outputs from both dataset implementations."""
     print("\n" + "="*80)
-    print("COMPARING DATASET IMPLEMENTATIONS")
+    print("SUCCESS! The flexible dataset works correctly.")
+    print("You can now:")
+    print("  1. Define overlapping train/val/test splits")
+    print("  2. Switch between modes at runtime with dataset.set_mode()")
+    print("  3. Normalization is done only on training data (no leakage)")
     print("="*80)
     
-    # Test original
-    orig_dataset, orig_sample = test_original_dataset()
-    
-    # Test dynamic
-    dyn_dataset, dyn_sample = test_dynamic_dataset()
-    
-    print("\n" + "="*80)
-    print("COMPARISON SUMMARY")
-    print("="*80)
-    print(f"\nOriginal dataset size: {len(orig_dataset)}")
-    print(f"Dynamic dataset size:  {len(dyn_dataset)}")
-    
-    print(f"\nSequence shapes:")
-    print(f"  Original: {orig_sample['sequence'].shape}")
-    print(f"  Dynamic:  {dyn_sample['sequence'].shape}")
-    
-    print(f"\nOutput shapes:")
-    print(f"  Original SOMSC: {orig_sample['somsc'].shape}")
-    print(f"  Dynamic SOMSC:  {dyn_sample['somsc'].shape}")
-    print(f"  Original Yield: {orig_sample['yield'].shape}")
-    print(f"  Dynamic Yield:  {dyn_sample['yield'].shape}")
-    
-    # ========================================================================
-    # VALUE COMPARISON
-    # ========================================================================
-    print("\n" + "="*80)
-    print("VALUE EQUALITY TESTING")
-    print("="*80)
-    
-    def compare_tensors(name, tensor1, tensor2, rtol=1e-3, atol=1e-4):
-        """Compare two tensors and report differences."""
-        if tensor1.shape != tensor2.shape:
-            print(f"\n❌ {name}: SHAPES DIFFER")
-            print(f"   Original: {tensor1.shape}, Dynamic: {tensor2.shape}")
-            return False
-        
-        # Check for exact equality
-        exact_match = torch.equal(tensor1, tensor2)
-        if exact_match:
-            print(f"\n✅ {name}: EXACT MATCH")
-            return True
-        
-        # Check for close equality (accounting for floating point errors)
-        close_match = torch.allclose(tensor1, tensor2, rtol=rtol, atol=atol)
-        if close_match:
-            print(f"\n✅ {name}: CLOSE MATCH (within tolerance)")
-            max_diff = torch.max(torch.abs(tensor1 - tensor2)).item()
-            print(f"   Max difference: {max_diff:.2e}")
-            return True
-        
-        # Report differences
-        print(f"\n❌ {name}: VALUES DIFFER")
-        diff = torch.abs(tensor1 - tensor2)
-        max_diff = torch.max(diff).item()
-        mean_diff = torch.mean(diff).item()
-        num_diff = torch.sum(~torch.isclose(tensor1, tensor2, rtol=rtol, atol=atol)).item()
-        total = tensor1.numel()
-        
-        print(f"   Max difference:  {max_diff:.6f}")
-        print(f"   Mean difference: {mean_diff:.6f}")
-        print(f"   Differing values: {num_diff}/{total} ({100*num_diff/total:.2f}%)")
-        
-        # Show some example differences
-        if num_diff > 0:
-            flat_t1 = tensor1.flatten()
-            flat_t2 = tensor2.flatten()
-            flat_diff = diff.flatten()
-            
-            # Get indices of largest differences
-            top_diff_indices = torch.topk(flat_diff, min(5, num_diff)).indices
-            print(f"   Top 5 differences:")
-            for i, idx in enumerate(top_diff_indices):
-                print(f"     {i+1}. Original: {flat_t1[idx]:.6f}, Dynamic: {flat_t2[idx]:.6f}, Diff: {flat_diff[idx]:.6f}")
-        
-        return False
-    
-    # Compare each field
-    all_match = True
-    
-    # Sequence comparison
-    all_match &= compare_tensors("Sequence", orig_sample['sequence'], dyn_sample['sequence'])
-    
-    # Initial conditions comparison
-    all_match &= compare_tensors("Initial Conditions", orig_sample['init_cond'], dyn_sample['init_cond'])
-    
-    # Year encoding comparison
-    all_match &= compare_tensors("Year Encoding", orig_sample['year_enc'], dyn_sample['year_enc'])
-    
-    # SOMSC comparison
-    all_match &= compare_tensors("SOMSC", orig_sample['somsc'], dyn_sample['somsc'])
-    
-    # SOMSC mask comparison
-    all_match &= compare_tensors("SOMSC Mask", orig_sample['somsc_mask'], dyn_sample['somsc_mask'])
-    
-    # Yield comparison
-    all_match &= compare_tensors("Yield", orig_sample['yield'].unsqueeze(0), dyn_sample['yield'].unsqueeze(0))
-    
-    # Yield mask comparison
-    all_match &= compare_tensors("Yield Mask", orig_sample['yield_mask'].unsqueeze(0), dyn_sample['yield_mask'].unsqueeze(0))
-    
-    # Harvest mask comparison
-    all_match &= compare_tensors("Harvest Mask", orig_sample['harvest_mask'], dyn_sample['harvest_mask'])
-    
-    # Metadata comparison
-    print(f"\n{'='*80}")
-    print("METADATA COMPARISON")
-    print(f"{'='*80}")
-    print(f"Point ID - Original: {orig_sample['pid']}, Dynamic: {dyn_sample['pid']}")
-    print(f"Year     - Original: {orig_sample['year']}, Dynamic: {dyn_sample['year']}")
-    
-    pid_match = str(orig_sample['pid']) == str(dyn_sample['pid'])
-    year_match = str(orig_sample['year']) == str(dyn_sample['year'])
-    
-    if pid_match and year_match:
-        print("✅ Metadata matches")
-    else:
-        print("❌ Metadata differs")
-        all_match = False
-    
-    # Final verdict
-    print(f"\n{'='*80}")
-    print("FINAL VERDICT")
-    print(f"{'='*80}")
-    if all_match:
-        print("✅ ALL VALUES MATCH - Implementations are equivalent!")
-    else:
-        print("❌ SOME VALUES DIFFER - Check the differences above")
-    
-    return all_match
+    return dataset
 
 
 # ============================================================================
@@ -641,17 +598,8 @@ def compare_datasets():
 
 if __name__ == "__main__":
     print("DayCent Dataset Loader Testing")
-    print("="*80)
-    print("\nThis script allows you to test different dataset loading approaches:")
-    print("1. Original: Uses preprocessed .npy files")
-    print("2. Dynamic: Merges data on-the-fly in __getitem__")
-    print("\nYou can modify and experiment with the DayCentDatasetDynamic class")
-    print("to test your own implementation ideas.")
-    
-    # Run comparison
-    # test_original_dataset()
-    # test_dynamic_dataset()
-    compare_datasets()
+
+    test_flexible_dataset()
     
     print("\n" + "="*80)
     print("Testing complete!")

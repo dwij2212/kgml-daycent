@@ -20,9 +20,11 @@ def load_weather_data(weather_dir: str) -> pd.DataFrame:
     """Load and concatenate all weather data files."""
     all_points = []
     
-    for points in os.listdir(weather_dir):
-        df = pd.read_csv(os.path.join(weather_dir, points))
-        df['point_id'] = points.split(".csv")[0]
+    for filename in os.listdir(weather_dir):
+        if not filename.endswith('.csv'):
+            continue
+        df = pd.read_csv(os.path.join(weather_dir, filename))
+        df['point_id'] = filename.split(".csv")[0]
         all_points.append(df)
     
     weather_df = pd.concat(all_points, ignore_index=True)
@@ -56,26 +58,30 @@ def split_by_quadrants(points_lookup_path: str, train_quadrants: list, test_quad
     return train_pids, test_pids
 
 
-def normalize_weather_data(weather_df: pd.DataFrame, train_pids: list, test_pids: list):
-    """Normalize weather data using StandardScaler fitted on training data."""
-    train_weather = weather_df[weather_df['point_id'].isin(train_pids)].copy()
+def normalize_weather_data(weather_df: pd.DataFrame, train_pids: list):
+    """
+    Normalize weather data using StandardScaler fitted on training data.
     
-    # Fit scaler on training data
+    Args:
+        weather_df: DataFrame with weather data
+        train_pids: List of training point IDs
+    
+    Returns:
+        tuple: (normalized_weather_df, scaler)
+    """
+    train_weather = weather_df[weather_df['point_id'].isin(train_pids)].copy()
+    test_weather = weather_df[~weather_df['point_id'].isin(train_pids)].copy()
+    
     scaler = StandardScaler()
     train_weather[['Tmax', 'Tmin', 'Precip']] = scaler.fit_transform(
         train_weather[['Tmax', 'Tmin', 'Precip']]
     )
-    
-    # Transform test data
-    test_weather = weather_df[~weather_df['point_id'].isin(train_pids)].copy()
     test_weather[['Tmax', 'Tmin', 'Precip']] = scaler.transform(
         test_weather[['Tmax', 'Tmin', 'Precip']]
     )
     
-    # Combine back
-    weather_df = pd.concat([train_weather, test_weather], ignore_index=True)
-    
-    return weather_df, scaler
+    normalized_df = pd.concat([train_weather, test_weather], ignore_index=True)
+    return normalized_df, scaler
 
 
 def load_single_scenario_output(scenario_id: str, output_dir: str):
@@ -106,7 +112,17 @@ def load_single_scenario_output(scenario_id: str, output_dir: str):
 
 
 def load_output_data(scenario_ids: list, output_dir: str, max_workers: int = None):
-    """Load output data for multiple scenarios using multithreading."""
+    """
+    Load output data for multiple scenarios using multithreading.
+    
+    Args:
+        scenario_ids: List of scenario IDs to load
+        output_dir: Directory containing output CSV files
+        max_workers: Number of threads for parallel loading
+    
+    Returns:
+        pd.DataFrame: Concatenated output data with scenario_id column
+    """
     all_outputs = []
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -115,31 +131,42 @@ def load_output_data(scenario_ids: list, output_dir: str, max_workers: int = Non
             for scenario_id in scenario_ids
         }
         
-        for future in tqdm(as_completed(future_to_scenario), desc="Loading output scenarios", total=len(future_to_scenario)):
+        for future in tqdm(as_completed(future_to_scenario), 
+                          desc="Loading scenarios", 
+                          total=len(scenario_ids)):
             scenario_id = future_to_scenario[future]
             try:
                 output_df = future.result()
                 all_outputs.append(output_df)
             except Exception as exc:
-                print(f'Scenario {scenario_id} generated an exception: {exc}')
+                print(f'Scenario {scenario_id} error: {exc}')
     
     return pd.concat(all_outputs, ignore_index=True)
 
 
 def load_management_data(scenario_ids: list, scenarios_file: str):
-    """Load and process management data."""
+    """
+    Load and pivot management schedule data.
+    
+    Args:
+        scenarios_file: Path to scenarios CSV file
+    
+    Returns:
+        pd.DataFrame: Pivoted management data with scenario_id column
+    """
     scenarios_df = pd.read_csv(scenarios_file).rename({'simyear': 'Year'}, axis=1)
-
+    
+    scenarios_df['scenario_id'] = scenarios_df['scenario'].str.replace('scenario_', '')
+    
     scenarios_df = scenarios_df.pivot_table(
-        index=['scenario', 'Year', 'doy'],
+        index=['scenario_id', 'Year', 'doy'],
         columns='management',
         aggfunc='size',
         fill_value=0
     ).reset_index()
 
-    # Filter for only requested scenarios
-    scenarios_df = scenarios_df[scenarios_df['scenario'].isin([f'scenario_{sid}' for sid in scenario_ids])]
-
+    scenarios_df = scenarios_df[scenarios_df['scenario_id'].isin(scenario_ids)]
+    
     return scenarios_df
 
 
@@ -173,35 +200,59 @@ def load_data(scenario_ids: list, weather_df: pd.DataFrame, scenarios_file: str,
     return X_daily, Y
 
 
-def normalize_outputs(Y: pd.DataFrame, train_pids: list, test_pids: list, scaler_path: str = None):
-    """Normalize output variables (somsc, cgrain) using StandardScaler."""
-    Y['scenario'] = Y['scenario_id'].apply(lambda x: f'scenario_{x}')
+def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_ids: list, 
+                      train_years: list, scaler_path: str = None):
+    """
+    Normalize output variables (somsc, cgrain) using StandardScaler fitted on training data.
     
+    Args:
+        output_df: DataFrame with output data containing 'somsc' and 'cgrain' columns
+        train_pids: List of training point IDs (strings)
+        train_scenario_ids: List of training scenario IDs (strings like '8050')
+        train_years: List of training years (integers)
+        scaler_path: Optional path to save/load scaler
+    
+    Returns:
+        tuple: (normalized_output_df, scaler_Y)
+    """
     if scaler_path and os.path.exists(scaler_path):
-        # Load existing scaler
         scaler_Y = joblib.load(scaler_path)
         print(f"Loaded existing scaler from {scaler_path}")
     else:
-        # Create and fit new scaler
+        train_mask = (
+            (output_df['point_id'].isin(train_pids)) & 
+            (output_df['scenario_id'].isin(train_scenario_ids)) & 
+            (output_df['Year'].isin(train_years))
+        )
+        train_Y = output_df[train_mask].copy()
+        
         scaler_Y = StandardScaler()
-        train_Y = Y[Y['point_id'].isin(train_pids)].copy()
         scaler_Y.fit(train_Y[['somsc', 'cgrain']])
         
         if scaler_path:
+            os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
             joblib.dump(scaler_Y, scaler_path)
             print(f"Saved new scaler to {scaler_path}")
+        
+        print(f"Output normalization fitted on {len(train_Y)} training samples")
+        print(f"  SOMSC - mean: {scaler_Y.mean_[0]:.4f}, std: {scaler_Y.scale_[0]:.4f}")
+        print(f"  CGRAIN - mean: {scaler_Y.mean_[1]:.4f}, std: {scaler_Y.scale_[1]:.4f}")
     
-    # Transform train and test
-    train_Y = Y[Y['point_id'].isin(train_pids)].copy()
+    train_mask = (
+        (output_df['point_id'].isin(train_pids)) & 
+        (output_df['scenario_id'].isin(train_scenario_ids)) & 
+        (output_df['Year'].isin(train_years))
+    )
+    train_Y = output_df[train_mask].copy()
+    test_Y = output_df[~train_mask].copy()
+    
     train_Y[['somsc', 'cgrain']] = scaler_Y.transform(train_Y[['somsc', 'cgrain']])
-    
-    test_Y = Y[Y['point_id'].isin(test_pids)].copy()
     test_Y[['somsc', 'cgrain']] = scaler_Y.transform(test_Y[['somsc', 'cgrain']])
     
-    Y_normalized = pd.concat([train_Y, test_Y])
-    Y_normalized.sort_values(['scenario', 'point_id', 'Year', 'doy'], inplace=True)
+    output_normalized = pd.concat([train_Y, test_Y], ignore_index=True)
+    output_normalized.sort_values(['scenario_id', 'point_id', 'Year', 'doy'], inplace=True)
     
-    return Y_normalized, scaler_Y
+    return output_normalized, scaler_Y
 
 
 def create_and_save_sequences(X_daily: pd.DataFrame, Y: pd.DataFrame, pids: list, 
