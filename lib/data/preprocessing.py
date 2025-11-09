@@ -378,7 +378,7 @@ def prepare_experiment_data(config):
     
     # Normalize weather
     print("\nNormalizing weather data...")
-    weather_df, weather_scaler = normalize_weather_data(weather_df, train_pids, test_pids)
+    weather_df, weather_scaler = normalize_weather_data(weather_df, train_pids)
     
     # Load all data
     print(f"\nLoading data for {len(config.data.scenario_ids)} scenarios...")
@@ -393,7 +393,8 @@ def prepare_experiment_data(config):
     # Normalize outputs
     print("\nNormalizing output variables...")
     Y_normalized, scaler_Y = normalize_outputs(
-        Y, train_pids, test_pids, 
+        Y, train_pids, config.data.scenario_ids, 
+        list(range(2000, 2024)),  # Default years
         scaler_path=config.get_scaler_path()
     )
     
@@ -415,4 +416,92 @@ def prepare_experiment_data(config):
         'test_pids': test_pids,
         'weather_scaler': weather_scaler,
         'output_scaler': scaler_Y
+    }
+
+
+def prepare_data_for_datasetv2(config):
+    """
+    Prepare data for DayCentDatasetV2 (returns DataFrames, doesn't save to disk).
+    
+    This function loads and normalizes data based on training split configuration,
+    then returns DataFrames that can be used directly by DayCentDatasetV2.
+    
+    Args:
+        config: ExperimentConfig instance with train/val/test split configs
+    
+    Returns:
+        dict: {
+            'weather_df': normalized weather DataFrame,
+            'management_df': management DataFrame,
+            'output_df': normalized output DataFrame,
+            'weather_scaler': fitted weather scaler,
+            'output_scaler': fitted output scaler
+        }
+    """
+    from utils.config import ExperimentConfig
+    
+    if not isinstance(config, ExperimentConfig):
+        raise TypeError("config must be an ExperimentConfig instance")
+    
+    print(f"\n{'='*80}")
+    print(f"PREPARING DATA FOR DATASETV2: {config.experiment_id}")
+    print(f"{'='*80}\n")
+    
+    # Get all scenario IDs needed
+    all_scenario_ids = config.data.get_all_scenario_ids()
+    print(f"Loading {len(all_scenario_ids)} unique scenarios...")
+    
+    # Load weather data
+    print("\n1. Loading weather data...")
+    weather_df = load_weather_data(config.data.weather_dir)
+    print(f"   Weather data shape: {weather_df.shape}")
+    
+    # Load management data
+    print("\n2. Loading management data...")
+    management_df = load_management_data(all_scenario_ids, config.data.scenarios_file)
+    print(f"   Management data shape: {management_df.shape}")
+    
+    # Load output data
+    print(f"\n3. Loading output data for {len(all_scenario_ids)} scenarios...")
+    output_df = load_output_data(
+        all_scenario_ids,
+        config.data.output_dir,
+        max_workers=config.data.max_workers
+    )
+    print(f"   Output data shape: {output_df.shape}")
+    
+    # Get training configuration for normalization
+    train_config = config.data.get_train_config()
+    if not train_config:
+        raise ValueError("Training configuration must be specified for normalization")
+    
+    train_pids = train_config['points']
+    train_scenario_ids = train_config['scenarios']
+    train_years = train_config['years']
+    
+    print(f"\n4. Normalizing weather data...")
+    print(f"   Using {len(train_pids)} training points for fitting")
+    weather_df, weather_scaler = normalize_weather_data(weather_df, train_pids)
+    
+    print(f"\n5. Normalizing output data...")
+    print(f"   Using training split: {len(train_scenario_ids)} scenarios, "
+          f"{len(train_pids)} points, {len(train_years)} years")
+    output_df, output_scaler = normalize_outputs(
+        output_df, 
+        train_pids, 
+        train_scenario_ids, 
+        train_years,
+        scaler_path=config.get_scaler_path()
+    )
+    
+    print("\n" + "="*80)
+    print("DATA PREPARATION COMPLETE")
+    print("="*80 + "\n")
+    
+    return {
+        'weather_df': weather_df,
+        'management_df': management_df,
+        'output_df': output_df,
+        'weather_scaler': weather_scaler,
+        'output_scaler': output_scaler
     }

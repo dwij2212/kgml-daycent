@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 
 
 # ============================================================================
-# DATA LOADING FUNCTIONS
+# DATA LOADING FUNCTIONS (Unchanged)
 # ============================================================================
 
 def load_weather_data(weather_dir: str) -> pd.DataFrame:
@@ -131,137 +131,281 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
     
     return output_normalized, scaler_Y
 
+
 # ============================================================================
-# NEW DATASET (merging logic in __getitem__)
+# LEGACY DATASET (Unchanged)
+# ============================================================================
+
+class DayCentDataset(Dataset):
+    """
+    Legacy dataset for loading pre-processed DayCent data from .npy files.
+    
+    This dataset expects data to be pre-processed and saved as numpy arrays.
+    Use this for backward compatibility with existing experiments.
+    """
+    
+    def __init__(self, input_npy_path, output_npy_path, init_cond_path, year_emb_dim=16):
+        data_dict = np.load(input_npy_path, allow_pickle=True).item()
+        self.data = data_dict["data"]        # (N, 365, #features)
+        self.mapping = data_dict["mapping"]  # (N, 3) => (scenario, point_id, year)
+        self.columns = list(data_dict["columns"])
+
+        self.init_conditions = self._load_initial_conditions(init_cond_path)
+        self.year_emb_dim = year_emb_dim
+
+        data_dict = np.load(output_npy_path, allow_pickle=True).item()
+        self.somsc = data_dict["somsc"]
+        self.cgrain = data_dict["cgrain"]
+        
+        # --- !! ADDED FOR VALIDATION !! ---
+        # Store for easier comparison
+        print("\n" + "="*80)
+        print("LEGACY DATASET INFO (for validation)")
+        # Make sure mapping is (sid, year, pid)
+        # The user's __getitem__ implies this order:
+        # sid, year, pid = self.mapping[idx]
+        print(f"Mapping shape: {self.mapping.shape}")
+        print(f"Sample mapping[0]: (sid={self.mapping[0,0]}, year={self.mapping[0,1]}, pid={self.mapping[0,2]})")
+        print("="*80 + "\n")
+        # --- !! END ADDED !! ---
+
+    def _load_initial_conditions(self, path):
+        df = pd.read_excel(path).set_index("id")
+        df.dropna(axis=1, inplace=True)  # drop columns that are all NaN
+
+        #normalise all columns except 'id'
+        cols_to_norm = [c for c in df.columns if c != 'id']
+        scaler = StandardScaler()
+        df[cols_to_norm] = scaler.fit_transform(df[cols_to_norm])
+        return df
+
+    def _year_pos_enc(self, year):
+        """Sin-cos positional encoding for year."""
+        year_rel = year.astype(int) - 2000
+        d = self.year_emb_dim
+        pe = np.zeros(d)
+        for i in range(0, d, 2):
+            div = np.power(10000, 2 * i / d)
+            pe[i] = np.sin(year_rel / div)
+            pe[i+1] = np.cos(year_rel / div)
+        return pe
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        seq = self.data[idx].copy()
+        sid, year, pid = self.mapping[idx]
+
+         # ---- harvest mask ----
+        harvest_idx = np.where(seq[:, self.columns.index("harvest_grain")] == 1)[0]
+        if len(harvest_idx) > 0:
+            cutoff = harvest_idx[0]  # first harvest day
+        else:
+            cutoff = 364             # if no harvest, allow whole year
+        harvest_mask = np.zeros(365, dtype=np.float32)
+        harvest_mask[:cutoff+1] = 1.0
+
+        # --- process doy ---
+        doy_idx = self.columns.index("doy")
+        doy = seq[:, doy_idx]
+        doy_sin = np.sin(2 * np.pi * doy / 365)
+        doy_cos = np.cos(2 * np.pi * doy / 365)
+
+        seq = np.concatenate([seq, doy_sin[:, None], doy_cos[:, None]], axis=1)
+
+        # --- initial site conditions ---
+        init_cond = self.init_conditions.loc[pid.astype(int)].to_numpy().astype(np.float32)
+
+        # --- year encoding ---
+        year_pe = self._year_pos_enc(year).astype(np.float32)
+
+        # ---- labels ----
+        somsc = self.somsc[idx]            # shape (12,)
+        somsc_mask = ~np.isnan(somsc)      # True = valid
+        somsc = np.nan_to_num(somsc, nan=0.0)   # replace NaNs with 0 (ignored by mask)
+
+        yield_val = self.cgrain[idx]   # scalar
+        yield_mask = ~np.isnan(yield_val)  # bool
+        if np.isnan(yield_val):
+            yield_val = 0.0
+
+        return {
+            "sequence": torch.tensor(seq, dtype=torch.float32),
+            "init_cond": torch.tensor(init_cond, dtype=torch.float32),
+            "year_enc": torch.tensor(year_pe, dtype=torch.float32),
+            "somsc": torch.tensor(somsc, dtype=torch.float32),
+            "somsc_mask": torch.tensor(somsc_mask.astype(np.float32)),
+            "yield": torch.tensor(yield_val, dtype=torch.float32),
+            "yield_mask": torch.tensor(float(yield_mask)),
+            "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),
+            "pid": pid,
+            "year": year
+        }
+
+
+# ============================================================================
+# ***OPTIMIZED*** DYNAMIC DATASET (From Previous Turn)
 # ============================================================================
 
 class DayCentDatasetDynamic(Dataset):
     """
-    Flexible dataset that performs merging in __getitem__ with configurable train/val/test splits.
+    Optimized flexible dataset with pre-computed indices for fast lookups
+    and a virtual index mapping for massive scalability.
     
-    This approach stores raw data and merges on-the-fly during iteration.
-    Supports overlapping scenarios, points, and years across splits.
+    This approach pre-computes all data-lookup indices during initialization
+    for O(1) lookups in __getitem__ and uses math to resolve the 
+    sample index (idx) to (scenario, year, point) without storing
+    a massive list.
     
     IMPORTANT: All scenario identifiers must be strings (e.g., '8050', not 8050 or 'scenario_8050')
     """
     
     def __init__(self, weather_df, management_df, output_df, init_cond_path,
-                 train_config=None, val_config=None, test_config=None,
-                 dataset_type='train', year_emb_dim=16):
+                 split_config, year_emb_dim=16):
         """
         Args:
             weather_df: DataFrame with weather data (already normalized)
             management_df: DataFrame with management events (has 'scenario_id' column with strings)
             output_df: DataFrame with outputs (already normalized, has 'scenario_id' column with strings)
             init_cond_path: Path to initial conditions Excel file
-            train_config: Dict with keys 'scenarios', 'points', 'years' (lists of strings/ints)
-            val_config: Dict with keys 'scenarios', 'points', 'years' (lists of strings/ints)
-            test_config: Dict with keys 'scenarios', 'points', 'years' (lists of strings/ints)
-            dataset_type: One of 'train', 'val', 'test' - determines which mapping to use
+            split_config: Dict with keys 'scenarios', 'points', 'years' defining this split
             year_emb_dim: Dimension for year positional encoding
-            
-        Example config:
-            train_config = {
-                'scenarios': ['1', '2', '3'],  # or [1, 2, 3] - will be converted to strings
-                'points': ['100', '101', '102'],
-                'years': [2000, 2001, 2002]
-            }
         """
-        # Store all data (no filtering yet)
-        self.weather_df = weather_df
-        self.management_df = management_df
-        self.output_df = output_df
-        self.init_conditions = self._load_initial_conditions(init_cond_path)
+        print("Initializing optimized dynamic dataset...")
+        
         self.year_emb_dim = year_emb_dim
-        self.dataset_type = dataset_type
+        self.init_conditions = self._load_initial_conditions(init_cond_path)
         
         # Get management feature columns (exclude identifiers)
-        self.mgmt_cols = [c for c in self.management_df.columns 
+        self.mgmt_cols = [c for c in management_df.columns 
                          if c not in ['scenario_id', 'Year', 'doy']]
         
-        # Create index mappings for each split
-        self.train_mapping = []
-        self.val_mapping = []
-        self.test_mapping = []
+        # Create VIRTUAL index mapping for this split
+        if not split_config:
+            raise ValueError("split_config must be provided")
         
-        if train_config:
-            self.train_mapping = self._create_index_mapping(
-                train_config['scenarios'], 
-                train_config['points'], 
-                train_config['years']
-            )
-            print(f"Train mapping created: {len(self.train_mapping)} samples")
+        # Store the lists of keys, not the materialized cartesian product
+        self.scenario_ids = [str(s) for s in split_config['scenarios']]
+        self.point_ids = [str(p) for p in split_config['points']]
+        self.years = split_config['years'] # Assumed to be list of ints
         
-        if val_config:
-            self.val_mapping = self._create_index_mapping(
-                val_config['scenarios'], 
-                val_config['points'], 
-                val_config['years']
-            )
-            print(f"Val mapping created: {len(self.val_mapping)} samples")
+        self.len_scenarios = len(self.scenario_ids)
+        self.len_points = len(self.point_ids)
+        self.len_years = len(self.years)
         
-        if test_config:
-            self.test_mapping = self._create_index_mapping(
-                test_config['scenarios'], 
-                test_config['points'], 
-                test_config['years']
-            )
-            print(f"Test mapping created: {len(self.test_mapping)} samples")
+        if self.len_scenarios == 0 or self.len_points == 0 or self.len_years == 0:
+            self.total_len = 0
+            self.year_point_block_size = 0
+            self.point_block_size = 0
+        else:
+            # This is the order from your original _create_index_mapping:
+            # for scenario... for year... for point...
+            self.total_len = self.len_scenarios * self.len_years * self.len_points
+            self.year_point_block_size = self.len_years * self.len_points
+            self.point_block_size = self.len_points
         
-        # Set active mapping based on dataset_type
-        self._set_dataset_type(dataset_type)
+        print(f"  Created virtual index mapping with {self.total_len} samples")
         
-        print(f"\nDataset initialized in '{dataset_type}' mode with {len(self)} samples")
+        # Pre-build lookup indices for O(1) access
+        print("  Building fast lookup indices...")
+        self._build_lookup_indices_optimized(weather_df, management_df, output_df)
+        
+        print(f"Dataset initialized with {self.total_len} samples")
     
-    def _create_index_mapping(self, scenario_ids, point_ids, years):
+    
+    def _build_lookup_indices_optimized(self, weather_df, management_df, output_df):
         """
-        Create index mapping for given scenarios, points, and years.
+        Pre-build indices for fast O(1) lookups using sorting and group boundary detection.
+        This is significantly faster than the original loop-and-mask approach.
+        """
         
-        Args:
-            scenario_ids: List of scenario IDs as strings (e.g., ['8050', '2765'])
-            point_ids: List of point IDs as strings
-            years: List of years as integers
+        # --- 1. Process Weather Data ---
+        print("    Processing weather data...")
+        # Ensure correct types and sort
+        weather_df['point_id'] = weather_df['point_id'].astype(str)
+        weather_df['Year'] = weather_df['Year'].astype(int)
+        weather_df = weather_df.sort_values(['point_id', 'Year', 'doy'])
+        
+        self.weather_arrays = weather_df[['Tmax', 'Tmin', 'Precip']].to_numpy()
+        self.weather_doy = weather_df['doy'].to_numpy()
+        
+        # Find group boundaries
+        group_keys_df = weather_df[['point_id', 'Year']]
+        # .ne() is "not equal", .shift() moves data down, .any(axis=1) checks row-wise
+        is_new_group = (group_keys_df != group_keys_df.shift()).any(axis=1)
+        group_start_indices = np.where(is_new_group)[0]
+        group_end_indices = np.append(group_start_indices[1:], len(weather_df))
+        
+        # Get the keys for each group (at the start index)
+        group_keys = group_keys_df.iloc[group_start_indices].values
+        
+        # Build hash map in one pass
+        self.weather_index = {}
+        for i in range(len(group_start_indices)):
+            # key_tuple is (pid_str, year_int)
+            key_tuple = (group_keys[i, 0], group_keys[i, 1]) 
+            self.weather_index[key_tuple] = (group_start_indices[i], group_end_indices[i])
+        
+        
+        # --- 2. Process Management Data ---
+        print("    Processing management data...")
+        # Ensure correct types and sort
+        management_df['scenario_id'] = management_df['scenario_id'].astype(str)
+        management_df['Year'] = management_df['Year'].astype(int)
+        management_df = management_df.sort_values(['scenario_id', 'Year', 'doy'])
+        
+        self.mgmt_arrays = management_df[self.mgmt_cols].to_numpy()
+        self.mgmt_doy = management_df['doy'].to_numpy()
+        
+        # Find group boundaries
+        group_keys_df = management_df[['scenario_id', 'Year']]
+        is_new_group = (group_keys_df != group_keys_df.shift()).any(axis=1)
+        group_start_indices = np.where(is_new_group)[0]
+        group_end_indices = np.append(group_start_indices[1:], len(management_df))
+        group_keys = group_keys_df.iloc[group_start_indices].values
+        
+        # Build hash map
+        self.mgmt_index = {}
+        for i in range(len(group_start_indices)):
+            key_tuple = (group_keys[i, 0], group_keys[i, 1]) # (sid_str, year_int)
+            start, end = group_start_indices[i], group_end_indices[i]
+            # Store as list of (doy, row_idx) for this scenario-year
+            # We use the original indices from the sorted array
+            doys_in_group = self.mgmt_doy[start:end]
+            indices_in_group = np.arange(start, end)
+            self.mgmt_index[key_tuple] = list(zip(doys_in_group, indices_in_group))
             
-        Returns:
-            List of tuples (scenario_id, year, point_id) - all strings
-        """
-        mapping = []
-        for scenario_id in scenario_ids:
-            # Ensure scenario_id is string
-            scenario_id = str(scenario_id)
-            for year in years:
-                for pid in point_ids:
-                    mapping.append((scenario_id, year, str(pid)))
-        return mapping
+            
+        # --- 3. Process Output Data ---
+        print("    Processing output data...")
+        # Ensure correct types and sort
+        output_df['scenario_id'] = output_df['scenario_id'].astype(str)
+        output_df['point_id'] = output_df['point_id'].astype(str)
+        output_df['Year'] = output_df['Year'].astype(int)
+        output_df = output_df.sort_values(['scenario_id', 'point_id', 'Year', 'month'])
+        
+        self.output_somsc = output_df['somsc'].to_numpy()
+        self.output_cgrain = output_df['cgrain'].to_numpy()
+        self.output_month = output_df['month'].to_numpy()
+        
+        # Find group boundaries
+        group_keys_df = output_df[['scenario_id', 'point_id', 'Year']]
+        is_new_group = (group_keys_df != group_keys_df.shift()).any(axis=1)
+        group_start_indices = np.where(is_new_group)[0]
+        group_end_indices = np.append(group_start_indices[1:], len(output_df))
+        group_keys = group_keys_df.iloc[group_start_indices].values
+        
+        # Build hash map
+        self.output_index = {}
+        for i in range(len(group_start_indices)):
+            key_tuple = (group_keys[i, 0], group_keys[i, 1], group_keys[i, 2]) # (sid_str, pid_str, year_int)
+            start, end = group_start_indices[i], group_end_indices[i]
+            # Store the range of indices (which are contiguous)
+            self.output_index[key_tuple] = np.arange(start, end)
+            
+        print("    Lookup indices built successfully!")
     
-    def _set_dataset_type(self, dataset_type):
-        """Set the active dataset type and mapping."""
-        if dataset_type not in ['train', 'val', 'test']:
-            raise ValueError(f"dataset_type must be 'train', 'val', or 'test', got '{dataset_type}'")
-        
-        self.dataset_type = dataset_type
-        
-        if dataset_type == 'train':
-            self.index_mapping = self.train_mapping
-        elif dataset_type == 'val':
-            self.index_mapping = self.val_mapping
-        else:  # test
-            self.index_mapping = self.test_mapping
-        
-        if len(self.index_mapping) == 0:
-            raise ValueError(f"No samples available for dataset_type '{dataset_type}'. "
-                           f"Did you provide the corresponding config?")
-    
-    def set_mode(self, dataset_type):
-        """
-        Switch between train/val/test modes at runtime.
-        
-        Args:
-            dataset_type: One of 'train', 'val', 'test'
-        """
-        self._set_dataset_type(dataset_type)
-        print(f"Dataset mode changed to '{dataset_type}' with {len(self)} samples")
-
     def _load_initial_conditions(self, path):
         df = pd.read_excel(path).set_index("id")
         df.dropna(axis=1, inplace=True)
@@ -282,50 +426,70 @@ class DayCentDatasetDynamic(Dataset):
         return pe
 
     def __len__(self):
-        return len(self.index_mapping)
+        # Return the pre-calculated total length
+        return self.total_len
 
     def __getitem__(self, idx):
-        scenario_id, year, pid = self.index_mapping[idx]
+        if idx >= self.total_len or idx < 0:
+            raise IndexError(f"Index {idx} out of range for dataset with length {self.total_len}")
+
+        # 1. Calculate (scenario, year, pid) from idx (VIRTUAL INDEX)
+        # This replaces: scenario_id, year, pid = self.index_mapping[idx]
         
-        # All identifiers are now strings for consistency:
-        # - scenario_id: e.g., '8050'
-        # - year: e.g., 2000 (int from mapping)
-        # - pid: e.g., '100'
+        scenario_idx = idx // self.year_point_block_size
+        remainder = idx % self.year_point_block_size
+        year_idx = remainder // self.point_block_size
+        point_idx = remainder % self.point_block_size
         
-        # 1. Get weather data for this point and year
-        weather_data = self.weather_df[
-            (self.weather_df['point_id'] == pid) & 
-            (self.weather_df['Year'] == year)
-        ].sort_values('doy')
+        scenario_id = self.scenario_ids[scenario_idx] # str
+        year = self.years[year_idx]                 # int
+        pid = self.point_ids[point_idx]               # str
         
-        # 2. Get management data for this scenario and year
-        mgmt_data = self.management_df[
-            (self.management_df['scenario_id'] == scenario_id) & 
-            (self.management_df['Year'] == year)
-        ].sort_values('doy')
+        # 2. Get weather data using pre-computed index (O(1) hash lookup)
+        weather_key = (pid, year)
+        if weather_key in self.weather_index:
+            start_idx, end_idx = self.weather_index[weather_key]
+            weather_vals = self.weather_arrays[start_idx:end_idx]
+            weather_doys = self.weather_doy[start_idx:end_idx]
+        else:
+            # No weather data for this point-year
+            weather_vals = np.zeros((0, 3), dtype=np.float32)
+            weather_doys = np.array([], dtype=np.int32)
         
-        # 3. Merge weather and management on doy
-        # Create daily sequence (365 days)
-        daily_df = pd.DataFrame({'doy': range(1, 366)})
-        daily_df = daily_df.merge(weather_data[['doy', 'Tmax', 'Tmin', 'Precip']], 
-                                  on='doy', how='left')
-        daily_df = daily_df.merge(mgmt_data[['doy'] + self.mgmt_cols], 
-                                  on='doy', how='left')
-        daily_df.fillna(0, inplace=True)
+        # 3. Get management data using pre-computed index (O(1) hash lookup)
+        mgmt_key = (scenario_id, year)
+        if mgmt_key in self.mgmt_index:
+            mgmt_events = self.mgmt_index[mgmt_key]  # List of (doy, row_idx)
+        else:
+            mgmt_events = []
         
-        # 4. Create sequence array
-        feature_cols = ['doy', 'Tmax', 'Tmin', 'Precip'] + self.mgmt_cols
-        seq = daily_df[feature_cols].to_numpy().astype(np.float32)
+        # 4. Create daily sequence (365 days) efficiently
+        seq = np.zeros((365, 3 + len(self.mgmt_cols)), dtype=np.float32)
         
-        # 5. Process doy (sin/cos encoding)
+        # Fill in weather data (map doy to array index)
+        for i, doy in enumerate(weather_doys):
+            if 1 <= doy <= 365:
+                seq[int(doy) - 1, :3] = weather_vals[i]
+        
+        # Fill in management data (map doy to array index)
+        for doy, row_idx in mgmt_events:
+            if 1 <= doy <= 365:
+                seq[int(doy) - 1, 3:] = self.mgmt_arrays[row_idx]
+        
+        # 5. Add doy column at the beginning
+        doy_col = np.arange(1, 366, dtype=np.float32).reshape(-1, 1)
+        seq = np.concatenate([doy_col, seq], axis=1)
+        
+        # 6. Process doy (sin/cos encoding)
         doy = seq[:, 0]
-        doy_sin = np.sin(2 * np.pi * doy / 365)
-        doy_cos = np.cos(2 * np.pi * doy / 365)
-        seq = np.concatenate([seq, doy_sin[:, None], doy_cos[:, None]], axis=1)
+        doy_sin = np.sin(2 * np.pi * doy / 365).reshape(-1, 1)
+        doy_cos = np.cos(2 * np.pi * doy / 365).reshape(-1, 1)
+        seq = np.concatenate([seq, doy_sin, doy_cos], axis=1)
         
-        # 6. Harvest mask
-        harvest_col_idx = feature_cols.index('harvest_grain') if 'harvest_grain' in feature_cols else -1
-        if harvest_col_idx >= 0:
+        # 7. Harvest mask - find 'harvest_grain' column if it exists
+        # The columns are: [doy, Tmax, Tmin, Precip, ...mgmt_cols..., doy_sin, doy_cos]
+        if 'harvest_grain' in self.mgmt_cols:
+            harvest_col_idx = 4 + self.mgmt_cols.index('harvest_grain')  # 4 = doy + 3 weather cols
             harvest_idx = np.where(seq[:, harvest_col_idx] == 1)[0]
             cutoff = harvest_idx[0] if len(harvest_idx) > 0 else 364
         else:
@@ -333,39 +497,37 @@ class DayCentDatasetDynamic(Dataset):
         harvest_mask = np.zeros(365, dtype=np.float32)
         harvest_mask[:cutoff+1] = 1.0
         
-        # 7. Initial site conditions
+        # 8. Initial site conditions
         init_cond = self.init_conditions.loc[int(pid)].to_numpy().astype(np.float32)
         
-        # 8. Year encoding
+        # 9. Year encoding
         year_pe = self._year_pos_enc(year).astype(np.float32)
         
-        # 9. Get outputs for this scenario, point, and year
-        # scenario_id is already a string like '8050', use it directly
-        output_data = self.output_df[
-            (self.output_df['scenario_id'] == scenario_id) &
-            (self.output_df['point_id'] == pid) &
-            (self.output_df['Year'] == year)
-        ]
-        
-        # 10. Process SOMSC (monthly values)
+        # 10. Get outputs using pre-computed index (O(1) hash lookup)
+        output_key = (scenario_id, pid, year)
         somsc_array = np.full(12, np.nan, dtype=np.float32)
-        if not output_data.empty:
-            for _, row in output_data.iterrows():
-                month = int(row['month'])
-                if not pd.isna(row['somsc']):
-                    somsc_array[month - 1] = row['somsc']
+        yield_val = 0.0
+        yield_mask = 0.0
+        
+        if output_key in self.output_index:
+            indices = self.output_index[output_key] # This is now np.arange(start, end)
+            
+            # Process SOMSC (monthly values)
+            for idx_pos in indices:
+                month = int(self.output_month[idx_pos])
+                somsc_val = self.output_somsc[idx_pos]
+                if not np.isnan(somsc_val) and 1 <= month <= 12:
+                    somsc_array[month - 1] = somsc_val
+            
+            # Process CGRAIN (annual value) - take first non-NaN value
+            cgrain_vals = self.output_cgrain[indices]
+            valid_cgrain = cgrain_vals[~np.isnan(cgrain_vals)]
+            if len(valid_cgrain) > 0:
+                yield_val = valid_cgrain[0]
+                yield_mask = 1.0
         
         somsc_mask = ~np.isnan(somsc_array)
         somsc_array = np.nan_to_num(somsc_array, nan=0.0)
-        
-        # 11. Process CGRAIN (annual value)
-        cgrain_values = output_data['cgrain'].dropna()
-        if len(cgrain_values) > 0:
-            yield_val = cgrain_values.iloc[0]
-            yield_mask = 1.0
-        else:
-            yield_val = 0.0
-            yield_mask = 0.0
         
         return {
             "sequence": torch.tensor(seq, dtype=torch.float32),
@@ -377,13 +539,13 @@ class DayCentDatasetDynamic(Dataset):
             "yield_mask": torch.tensor(yield_mask, dtype=torch.float32),
             "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),
             "pid": pid,
-            "year": str(year),
-            "scenario_id": scenario_id  # Return as scenario_id (string) for consistency
+            "year": str(year), # return str for consistency
+            "scenario_id": scenario_id
         }
 
 
 # ============================================================================
-# DATA PREPARATION HELPER
+# DATA PREPARATION HELPER (Unchanged)
 # ============================================================================
 
 def prepare_data_for_dynamic_dataset(base_dir, scenario_ids, train_config, val_config=None, test_config=None):
@@ -464,132 +626,264 @@ def prepare_data_for_dynamic_dataset(base_dir, scenario_ids, train_config, val_c
     }
 
 
-def test_flexible_dataset():
-    """Test the flexible dynamic dataset with train/val/test splits."""
+# ============================================================================
+# ***MODIFIED*** PROFILING & VALIDATION FUNCTION
+# ============================================================================
+
+def profile_datasets():
+    """Profile and VALIDATE the performance of both dataset implementations."""
+    import time
+    import statistics
+    
     print("\n" + "="*80)
-    print("TESTING FLEXIBLE DYNAMIC DATASET")
+    print("DATASET PERFORMANCE & VALIDATION")
     print("="*80)
     
-    # Paths
+    # Paths (Update these to your environment)
     base_dir = "/users/6/mehta423/daycent/data/SAS_KGML_090925"
     init_cond = os.path.join(base_dir, "InputData/initial_site_conditions.xlsx")
-    points_lookup = os.path.join(base_dir, "SAS_points_lookup.csv")
     
-    # Get point IDs
-    points_df = pd.read_csv(points_lookup)
-    all_pids = points_df['id'].astype(str).tolist()
+    # Legacy .npy paths (Update these)
+    legacy_input_path = "/users/6/mehta423/daycent/data/experiment10/train_X.npy"
+    legacy_output_path = "/users/6/mehta423/daycent/data/experiment10/train_Y.npy"
     
-    # Example: Create flexible train/val/test configurations
-    # These can overlap! Same scenario/point/year can be in multiple splits
     
-    # For demo, let's use a subset
-    test_scenario_ids = [str(i) for i in range(1, 1000)]
+    # === !! NEW CONFIGURATION BASED ON YOUR DATA !! ===
+    print("\nUsing specified train data for validation:")
     
-    # Split points into groups (can overlap if desired)
-    train_points = all_pids[:100]  # First 100 points
-    val_points = all_pids[100:150]  # 100-150 (overlaps with train!)
-    test_points = all_pids[150:]  # 150-200 (overlaps with val!)
+    # 1. Scenarios:
+    # scenario_1000, scenario_1099, ...
+    scenarios_list = ['1000', '1099', '1390', '1616', '2034', '2600', '2729', '3503', '3932', '4880']
     
-    # Years can also overlap
-    train_years = list(range(2000, 2020))  # 2000-2019
-    val_years = list(range(2008, 2020))    # 2008-2019 (overlaps!)
-    test_years = list(range(2020, 2024))   # 2020-2023 (overlaps!)
-
-    # Scenarios can overlap too
-    train_scenarios = ['99', '2765', '6111', '2425', '7695', '2795', '1773', '1803', '9017', '1639', '9109', '1087', '368', '7221', '6305', '8457', '3396', '7727', '5211', '7759', '6563', '9387', '9223', '8180', '5142', '5003', '5533', '9169', '4947', '9319', '2670', '8670', '1273', '5624', '4361', '7737', '4770', '5967', '534', '6909', '6232', '5848', '143', '4283', '7900', '4618', '5089', '9568', '9277', '4006']
-    val_scenarios = ['1', '10', '100', '1000', '10000', '1001', '2002', '1003', '1004', '1005']
-    test_scenarios = ['2425', '7695']
+    # 2. Points:
+    points_list = ['1773513', '1773749', '1773883', '1774528', '1774685', '1774853', '1775042',
+ '1776558', '1776592', '1777257', '1777271', '1778109', '1778253', '1779437',
+ '1779518', '1779588', '1782812', '1784153', '1784216', '1789230', '1790161',
+ '1790233', '1790935', '1794265', '1794644', '1795246', '1795304', '1796415',
+ '1798503', '657271', '657277', '657532', '657791', '658349', '659118', '659143',
+ '659172', '661129', '661514', '663385', '664407', '664432', '664552', '664763',
+ '665320', '666125', '667689', '668968', '669194', '669561', '669606', '669797',
+ '670226', '670405', '670931', '671294', '672163', '674884', '675099', '675631',
+ '676905', '677234', '678080', '678248', '678676', '679163', '679545', '680247',
+ '681419', '681627', '681794', '682280', '683527', '684108', '684585', '684591',
+ '685292', '685391', '685970', '686109', '686248', '687710', '688663', '689893',
+ '690423', '691651', '693561', '693674', '694252', '696949', '697886', '697960',
+ '698225', '699880', '700165', '700347', '701014', '701081', '701768', '703163',
+ '708549', '710977']
+    
+    # 3. Years:
+    years_list = list(range(2000, 2025)) # 2000 to 2024 inclusive
     
     train_config = {
-        'scenarios': train_scenarios,
-        'points': train_points,
-        'years': train_years
-    }
-    
-    val_config = {
-        'scenarios': val_scenarios,
-        'points': val_points,
-        'years': val_years
-    }
-    
-    test_config = {
-        'scenarios': test_scenarios,
-        'points': test_points,
-        'years': test_years
+        'scenarios': scenarios_list,
+        'points': points_list,
+        'years': years_list
     }
     
     print(f"\nConfiguration:")
-    print(f"  Train: {len(train_scenarios)} scenarios, {len(train_points)} points, {len(train_years)} years")
-    print(f"  Val:   {len(val_scenarios)} scenarios, {len(val_points)} points, {len(val_years)} years")
-    print(f"  Test:  {len(test_scenarios)} scenarios, {len(test_points)} points, {len(test_years)} years")
+    print(f"  Scenarios: {len(scenarios_list)}")
+    print(f"  Points: {len(points_list)}")
+    print(f"  Years: {len(years_list)}")
+    print(f"  Expected samples: {len(scenarios_list) * len(points_list) * len(years_list)}")
     
-    # Prepare data (loads and normalizes based on training set)
-    weather_df, management_df, output_df, configs = prepare_data_for_dynamic_dataset(
-        base_dir=base_dir,
-        scenario_ids=test_scenario_ids,
-        train_config=train_config,
-        val_config=val_config,
-        test_config=test_config
-    )
-    
-    # Create dataset (starts in 'train' mode)
+    # ========================================================================
+    # 1. LOAD LEGACY DATASET (DayCentDataset)
+    # ========================================================================
     print("\n" + "="*80)
-    print("CREATING FLEXIBLE DATASET")
+    print("LOADING LEGACY DATASET (DayCentDataset)")
     print("="*80)
     
-    dataset = DayCentDatasetDynamic(
+    legacy_dataset = None # Initialize
+    if os.path.exists(legacy_input_path) and os.path.exists(legacy_output_path):
+        print("\nCreating legacy dataset...")
+        legacy_dataset = DayCentDataset(
+            input_npy_path=legacy_input_path,
+            output_npy_path=legacy_output_path,
+            init_cond_path=init_cond,
+            year_emb_dim=16
+        )
+        print(f"Legacy dataset size: {len(legacy_dataset)} samples")
+    else:
+        print(f"\nSkipping legacy dataset (files not found)")
+        print(f"  Expected: {legacy_input_path}")
+        
+    
+    # ========================================================================
+    # 2. LOAD DYNAMIC DATASET (DayCentDatasetDynamic)
+    # ========================================================================
+    print("\n" + "="*80)
+    print("LOADING DYNAMIC DATASET (DayCentDatasetDynamic)")
+    print("="*80)
+    
+    print("\nPreparing data (loading and normalizing)...")
+    weather_df, management_df, output_df, configs = prepare_data_for_dynamic_dataset(
+        base_dir=base_dir,
+        scenario_ids=scenarios_list, # Load only the scenarios we need
+        train_config=train_config,
+        val_config=None,
+        test_config=None
+    )
+    
+    print("\nCreating dynamic dataset...")
+    dynamic_dataset = DayCentDatasetDynamic(
         weather_df=weather_df,
         management_df=management_df,
         output_df=output_df,
         init_cond_path=init_cond,
-        train_config=train_config,
-        val_config=val_config,
-        test_config=test_config,
-        dataset_type='train',  # Start in train mode
+        split_config=train_config,
         year_emb_dim=16
     )
+    print(f"Dynamic dataset size: {len(dynamic_dataset)} samples")
     
-    # Test switching modes
+
+    # ========================================================================
+    # === !! 3. NEW VALIDATION STEP !! ===
+    # ========================================================================
     print("\n" + "="*80)
-    print("TESTING MODE SWITCHING")
+    print("DATA VALIDATION")
     print("="*80)
     
-    print(f"\nInitial mode: train - {len(dataset)} samples")
-    train_sample = dataset[0]
-    print(f"Train sample 0: scenario_id={train_sample['scenario_id']}, pid={train_sample['pid']}, year={train_sample['year']}")
-    
-    # Switch to validation
-    dataset.set_mode('val')
-    val_sample = dataset[0]
-    print(f"Val sample 0: scenario_id={val_sample['scenario_id']}, pid={val_sample['pid']}, year={val_sample['year']}")
-    
-    # Switch to test
-    dataset.set_mode('test')
-    test_sample = dataset[0]
-    print(f"Test sample 0: scenario_id={test_sample['scenario_id']}, pid={test_sample['pid']}, year={test_sample['year']}")
-    
-    # Switch back to train
-    dataset.set_mode('train')
-    print(f"\nSwitched back to train mode - {len(dataset)} samples")
-    
+    if legacy_dataset is not None and dynamic_dataset is not None:
+        # Check 1: Length
+        print(f"\nChecking length...")
+        try:
+            assert len(legacy_dataset) == len(dynamic_dataset)
+            print(f"  ✓ SUCCESS: Both datasets have length {len(legacy_dataset)}")
+        except AssertionError:
+            print(f"  ✗ FAILURE: Length mismatch!")
+            print(f"    Legacy:  {len(legacy_dataset)}")
+            print(f"    Dynamic: {len(dynamic_dataset)}")
+            return # Stop validation
+
+        # Check 2: Random Item Comparison
+        print(f"\nChecking content... (sampling 10 random indices)")
+        indices_to_check = np.random.choice(len(legacy_dataset), 10, replace=False)
+        all_match = True
+        
+        try:
+            for idx in tqdm(indices_to_check, desc="Validating items"):
+                legacy_item = legacy_dataset[idx]
+                legacy_sid, legacy_year, legacy_pid = legacy_dataset.mapping[idx]
+                
+                dynamic_item = dynamic_dataset[idx]
+                
+                # A: Compare Keys (the most important check for index order)
+                # Normalize legacy keys to match dynamic keys (all strings)
+                
+                # Handle scenario ID: "scenario_2729" -> "2729"
+                sid_str = str(legacy_sid).replace('scenario_', '')
+                
+                # Handle year/pid: cast to int (to handle float), then back to str
+                year_str = str(int(legacy_year))
+                pid_str = str(int(legacy_pid))
+                
+                legacy_key = (sid_str, year_str, pid_str)
+                dynamic_key = (dynamic_item['scenario_id'], dynamic_item['year'], dynamic_item['pid'])
+
+                print(f"\nIndex {idx} Keys:")
+                print(f"  Legacy:  {legacy_key}")
+                print(f"  Dynamic: {dynamic_key}")
+
+                assert legacy_key == dynamic_key, f"Key mismatch at index {idx}! Legacy: {legacy_key}, Dynamic: {dynamic_key}"
+                
+                # B: Compare non-sequence Tensors
+                assert torch.allclose(legacy_item['init_cond'], dynamic_item['init_cond']), f"init_cond mismatch at index {idx}"
+                assert torch.allclose(legacy_item['year_enc'], dynamic_item['year_enc']), f"year_enc mismatch at index {idx}"
+                
+                # C: Compare Output Tensors
+                assert torch.allclose(legacy_item['somsc'], dynamic_item['somsc']), f"somsc mismatch at index {idx}"
+                assert torch.allclose(legacy_item['somsc_mask'], dynamic_item['somsc_mask']), f"somsc_mask mismatch at index {idx}"
+                assert torch.allclose(legacy_item['yield'], dynamic_item['yield']), f"yield mismatch at index {idx}"
+                assert torch.allclose(legacy_item['yield_mask'], dynamic_item['yield_mask']), f"yield_mask mismatch at index {idx}"
+
+            print("\n  ✓ SUCCESS: All 10 random samples match perfectly!")
+            print("  (Keys, init_cond, year_enc, somsc, and yield all validated)")
+
+        except AssertionError as e:
+            print(f"\n  ✗ FAILURE: Data mismatch found!")
+            print(f"    Error: {e}")
+            all_match = False
+
+    else:
+        print("\nSkipping validation (Legacy dataset not loaded).")
+        
+        
+    # ========================================================================
+    # 4. PERFORMANCE PROFILING (Original)
+    # ========================================================================
     print("\n" + "="*80)
-    print("SAMPLE STRUCTURE")
+    print("PERFORMANCE PROFILING")
     print("="*80)
-    for key, val in train_sample.items():
-        if isinstance(val, torch.Tensor):
-            print(f"  {key:15s}: shape={val.shape}, dtype={val.dtype}")
+    
+    legacy_mean = None
+    if legacy_dataset:
+        print("\nWarming up legacy dataset (10 samples)...")
+        for i in range(min(10, len(legacy_dataset))):
+            _ = legacy_dataset[i]
+        
+        num_samples = min(1000, len(legacy_dataset))
+        print(f"\nProfiling legacy __getitem__ on {num_samples} samples...")
+        
+        times = []
+        indices = np.random.choice(len(legacy_dataset), num_samples, replace=False)
+        
+        for idx in tqdm(indices, desc="Legacy Dataset"):
+            start = time.perf_counter()
+            _ = legacy_dataset[idx]
+            end = time.perf_counter()
+            times.append((end - start) * 1000)  # Convert to ms
+        
+        print(f"\nLegacy Dataset Performance:")
+        print(f"  Mean time:   {statistics.mean(times):.4f} ms")
+        print(f"  Median time: {statistics.median(times):.4f} ms")
+        legacy_mean = statistics.mean(times)
+    
+    # --- Profile Dynamic ---
+    print("\nWarming up dynamic dataset (10 samples)...")
+    for i in range(min(10, len(dynamic_dataset))):
+        _ = dynamic_dataset[i]
+    
+    num_samples = min(1000, len(dynamic_dataset))
+    print(f"\nProfiling dynamic __getitem__ on {num_samples} samples...")
+    
+    times = []
+    indices = np.random.choice(len(dynamic_dataset), num_samples, replace=False)
+    
+    for idx in tqdm(indices, desc="Dynamic Dataset"):
+        start = time.perf_counter()
+        _ = dynamic_dataset[idx]
+        end = time.perf_counter()
+        times.append((end - start) * 1000)  # Convert to ms
+    
+    print(f"\nDynamic Dataset Performance:")
+    print(f"  Mean time:   {statistics.mean(times):.4f} ms")
+    print(f"  Median time: {statistics.median(times):.4f} ms")
+    dynamic_mean = statistics.mean(times)
+    
+    # ========================================================================
+    # 5. COMPARISON
+    # ========================================================================
+    print("\n" + "="*80)
+    print("PERFORMANCE COMPARISON")
+    print("="*80)
+    
+    if legacy_mean is not None:
+        print(f"\nLegacy Dataset (pre-processed):  {legacy_mean:.4f} ms per sample")
+        print(f"Dynamic Dataset (on-the-fly):    {dynamic_mean:.4f} ms per sample")
+        
+        if dynamic_mean < legacy_mean:
+            speedup = legacy_mean / dynamic_mean
+            print(f"  ✓ Dynamic dataset is {speedup:.2f}x FASTER")
         else:
-            print(f"  {key:15s}: {val}")
+            slowdown = dynamic_mean / legacy_mean
+            print(f"  ✗ Dynamic dataset is {slowdown:.2f}x SLOWER")
+    else:
+        print(f"\nDynamic Dataset (on-the-fly):    {dynamic_mean:.4f} ms per sample")
+        print("(Legacy dataset not available for performance comparison)")
     
     print("\n" + "="*80)
-    print("SUCCESS! The flexible dataset works correctly.")
-    print("You can now:")
-    print("  1. Define overlapping train/val/test splits")
-    print("  2. Switch between modes at runtime with dataset.set_mode()")
-    print("  3. Normalization is done only on training data (no leakage)")
+    print("PROFILING COMPLETE")
     print("="*80)
-    
-    return dataset
 
 
 # ============================================================================
@@ -597,10 +891,5 @@ def test_flexible_dataset():
 # ============================================================================
 
 if __name__ == "__main__":
-    print("DayCent Dataset Loader Testing")
-
-    test_flexible_dataset()
-    
-    print("\n" + "="*80)
-    print("Testing complete!")
-    print("="*80)
+    print("DayCent Dataset Loader Performance Profiling & Validation")
+    profile_datasets()

@@ -1,45 +1,69 @@
 # Experiment 12 Configuration
-# Example: Small test with 10 scenarios
+# Example: Small test with flexible train/val/test splits using DayCentDatasetV2
 
 experiment_id: experiment12
-description: "Quick test experiment with 10 scenarios for debugging"
+description: "Quick test experiment with DayCentDatasetV2 - flexible train/val/test splits"
 
 data:
   base_dir: /users/6/mehta423/daycent/data/SAS_KGML_090925
   use_synthetic: true
-  
-  # Just 10 scenarios for quick testing
-  scenario_ids:
-    - '1'
-    - '10'
-    - '100'
-    - '1000'
-    - '2000'
-    - '3000'
-    - '4000'
-    - '5000'
-    - '6000'
-    - '7000'
-  
-  # Spatial split configuration
-  train_quadrants:
-    - 'Q1 (SW)'
-  test_quadrants:
-    - 'Q2 (SE)'
-    - 'Q3 (NW)'
-    - 'Q4 (NE)'
-  
   max_workers: 4
+  
+  # Train split configuration
+  train:
+    # Scenarios: can use explicit list or range
+    scenario_range:
+      start: 1
+      end: 100  # Will use scenarios 1-100
+    
+    # Points: can use quadrants or explicit list (explicit takes precedence)
+    quadrants:
+      - 'Q1 (SW)'
+    # points: ['1', '2', '3']  # Uncomment to use explicit points instead
+    
+    # Years: can use explicit list or range
+    year_range:
+      start: 2000
+      end: 2015  # Will use years 2000-2015
+  
+  # Validation split configuration
+  val:
+    scenario_range:
+      start: 5000
+      end: 5010
+    
+    quadrants:
+      - 'Q2 (SE)'
+    
+    year_range:
+      start: 2000
+      end: 2015
+  
+  # Test split configuration
+  test:
+    # Example with explicit scenario list
+    scenarios:
+      - '51'
+      - '52'
+      - '53'
+      - '54'
+      - '55'
+    
+    quadrants:
+      - 'Q3 (NW)'
+      - 'Q4 (NE)'
 
-model:
+    years: [2020, 2021, 2022, 2023, 2024]  # Explicit year list
+
+model: # this is not yet implemented. model just takes args from sample size
   hidden_dim: 64
   num_layers: 1
   dropout: 0.1
 
 training:
-  batch_size: 1024
+  batch_size: 2048
   epochs: 20
-  learning_rate: 0.01
+  learning_rate: 0.001
   device: cuda:2
   
   somsc_loss_weight: 1.0
@@ -48,19 +72,16 @@ training:
   scheduler_factor: 0.5
   scheduler_patience: 3
   
-  num_scenarios: 10
-  train_ratio: 0.7
-  val_ratio: 0.2
-  test_ratio: 0.1
-  
   random_seed: 42
   num_workers: 2
 
 wandb:
   enabled: false  # Disable for quick tests
   project: daycent
-  name: experiment12/quick-test
-  notes: "Quick test with 10 scenarios"
+  name: experiment12/datasetv2-test
+  notes: "Testing DayCentDatasetV2 with flexible splits"
   tags:
     - test
+    - datasetv2
     - debug
+

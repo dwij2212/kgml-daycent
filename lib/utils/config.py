@@ -3,8 +3,79 @@ Experiment configuration management for DayCent modeling.
 """
 import os
 import yaml
+import pandas as pd
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
+
+
+@dataclass
+class SplitConfig:
+    """Configuration for a single data split (train/val/test)."""
+    # Scenario selection
+    scenarios: Optional[List[str]] = None  # Explicit list of scenario IDs
+    scenario_range: Optional[Dict[str, int]] = None  # e.g., {'start': 1, 'end': 100}
+    
+    # Point selection (one of these should be specified)
+    quadrants: Optional[List[str]] = None  # e.g., ['Q1 (SW)', 'Q2 (SE)']
+    points: Optional[List[str]] = None  # Explicit point IDs (takes precedence)
+    
+    # Year selection
+    years: Optional[List[int]] = None  # Explicit list
+    year_range: Optional[Dict[str, int]] = None  # e.g., {'start': 2000, 'end': 2020}
+    
+    def get_scenario_ids(self) -> List[str]:
+        """Get list of scenario IDs from either explicit list or range."""
+        if self.scenarios:
+            return [str(s) for s in self.scenarios]
+        elif self.scenario_range:
+            start = self.scenario_range['start']
+            end = self.scenario_range['end']
+            return [str(i) for i in range(start, end + 1)]
+        else:
+            return []
+    
+    def get_years(self) -> List[int]:
+        """Get list of years from either explicit list or range."""
+        if self.years:
+            return self.years
+        elif self.year_range:
+            start = self.year_range['start']
+            end = self.year_range['end']
+            return list(range(start, end + 1))
+        else:
+            return []
+    
+    def get_point_ids(self, points_lookup_path: str) -> List[str]:
+        """
+        Get list of point IDs.
+        If explicit points are specified, use those.
+        Otherwise, use quadrants to determine points.
+        """
+        if self.points:
+            return [str(p) for p in self.points]
+        elif self.quadrants:
+            return self._get_points_from_quadrants(points_lookup_path, self.quadrants)
+        else:
+            return []
+    
+    def _get_points_from_quadrants(self, points_lookup_path: str, quadrants: List[str]) -> List[str]:
+        """Get point IDs from quadrant names."""
+        df = pd.read_csv(points_lookup_path)
+        
+        # Calculate medians for splitting
+        median_x = df['POINT_X'].median()
+        median_y = df['POINT_Y'].median()
+        
+        # Create quadrants
+        df['quadrant'] = 'Q1'
+        df.loc[(df['POINT_X'] <= median_x) & (df['POINT_Y'] <= median_y), 'quadrant'] = 'Q1 (SW)'
+        df.loc[(df['POINT_X'] > median_x) & (df['POINT_Y'] <= median_y), 'quadrant'] = 'Q2 (SE)'
+        df.loc[(df['POINT_X'] <= median_x) & (df['POINT_Y'] > median_y), 'quadrant'] = 'Q3 (NW)'
+        df.loc[(df['POINT_X'] > median_x) & (df['POINT_Y'] > median_y), 'quadrant'] = 'Q4 (NE)'
+        
+        # Filter by quadrants
+        filtered = df[df['quadrant'].isin(quadrants)]
+        return filtered['id'].astype(str).tolist()
 
 
 @dataclass
@@ -18,10 +89,15 @@ class DataConfig:
     init_cond_file: str = field(init=False)
     scenarios_file: str = field(init=False)
     
-    # Data selection
-    scenario_ids: List[str] = field(default_factory=lambda: ['1'])
-    train_quadrants: List[str] = field(default_factory=lambda: ['Q1 (SW)'])
-    test_quadrants: List[str] = field(default_factory=lambda: ['Q2 (SE)', 'Q3 (NW)', 'Q4 (NE)'])
+    # Legacy fields (kept for backward compatibility)
+    scenario_ids: Optional[List[str]] = None
+    train_quadrants: Optional[List[str]] = None
+    test_quadrants: Optional[List[str]] = None
+    
+    # New split configurations
+    train: Optional[SplitConfig] = None
+    val: Optional[SplitConfig] = None
+    test: Optional[SplitConfig] = None
     
     # Processing options
     max_workers: int = 10
@@ -36,6 +112,54 @@ class DataConfig:
         self.init_cond_file = os.path.join(self.input_dir, "initial_site_conditions.xlsx")
         scenarios_suffix = "Synthetic_10000" if self.use_synthetic else "Realistic_8"
         self.scenarios_file = os.path.join(self.input_dir, f"schedule_scenarios_all_{scenarios_suffix}.csv")
+    
+    def get_all_scenario_ids(self) -> List[str]:
+        """Get all unique scenario IDs across all splits."""
+        all_scenarios = set()
+        
+        # Add from legacy scenario_ids
+        if self.scenario_ids:
+            all_scenarios.update([str(s) for s in self.scenario_ids])
+        
+        # Add from splits
+        for split in [self.train, self.val, self.test]:
+            if split:
+                all_scenarios.update(split.get_scenario_ids())
+        
+        return sorted(list(all_scenarios))
+    
+    def get_train_config(self) -> Dict[str, Any]:
+        """Get training configuration in format expected by DayCentDatasetV2."""
+        if not self.train:
+            return None
+        
+        return {
+            'scenarios': self.train.get_scenario_ids(),
+            'points': self.train.get_point_ids(self.points_lookup),
+            'years': self.train.get_years()
+        }
+    
+    def get_val_config(self) -> Dict[str, Any]:
+        """Get validation configuration in format expected by DayCentDatasetV2."""
+        if not self.val:
+            return None
+        
+        return {
+            'scenarios': self.val.get_scenario_ids(),
+            'points': self.val.get_point_ids(self.points_lookup),
+            'years': self.val.get_years()
+        }
+    
+    def get_test_config(self) -> Dict[str, Any]:
+        """Get test configuration in format expected by DayCentDatasetV2."""
+        if not self.test:
+            return None
+        
+        return {
+            'scenarios': self.test.get_scenario_ids(),
+            'points': self.test.get_point_ids(self.points_lookup),
+            'years': self.test.get_years()
+        }
 
 
 @dataclass
@@ -122,7 +246,17 @@ class ExperimentConfig:
             config_dict = yaml.safe_load(f)
         
         # Parse nested configs
-        data_config = DataConfig(**config_dict.get('data', {}))
+        data_dict = config_dict.get('data', {})
+        
+        # Parse split configs if they exist
+        if 'train' in data_dict:
+            data_dict['train'] = SplitConfig(**data_dict['train'])
+        if 'val' in data_dict:
+            data_dict['val'] = SplitConfig(**data_dict['val'])
+        if 'test' in data_dict:
+            data_dict['test'] = SplitConfig(**data_dict['test'])
+        
+        data_config = DataConfig(**data_dict)
         model_config = ModelConfig(**config_dict.get('model', {}))
         training_config = TrainingConfig(**config_dict.get('training', {}))
         wandb_config = WandbConfig(**config_dict.get('wandb', {}))
