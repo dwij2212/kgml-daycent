@@ -13,6 +13,7 @@ import torch
 from torch.utils.data import DataLoader, Subset
 from torch import optim
 from tqdm import tqdm
+import joblib
 
 from utils.config import ExperimentConfig
 from data.preprocessing import prepare_experiment_data, prepare_data_for_datasetv2
@@ -182,8 +183,49 @@ def initialize_wandb(config: ExperimentConfig):
         print("Warning: wandb not installed. Skipping W&B logging.\n")
         return None
 
+import matplotlib.pyplot as plt
+import wandb
 
-def train_epoch(model, train_loader, optimizer, device, config):
+def plot_training_sample(pred_seq, true_seq, mask, scaler, epoch, batch_idx, save_dir=None):
+    """
+    Plots a single sample's SOMSC trajectory during training.
+    """
+    # 1. Inverse Transform (Un-normalize)
+    # Assuming scaler was fit on [SOMSC, Yield, ...] 
+    # scaler.mean_[0] is SOMSC mean, scaler.scale_[0] is SOMSC std
+    somsc_mean = scaler.mean_[0]
+    somsc_scale = scaler.scale_[0]
+    
+    pred_real = (pred_seq * somsc_scale) + somsc_mean
+    true_real = (true_seq * somsc_scale) + somsc_mean
+    
+    # 2. Filter masked values (if mask is 0, don't plot or cut off)
+    # Simply using the mask to filter arrays for plotting
+    valid_indices = mask > 0
+    
+    # Convert to numpy and flatten
+    pred_plot = pred_real[valid_indices]
+    true_plot = true_real[valid_indices]
+    months = np.arange(len(pred_plot))
+    
+    # 3. Create Plot
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(months, true_plot, 'o-', label='Ground Truth', color='#2E86AB', alpha=0.7)
+    ax.plot(months, pred_plot, 's--', label='Prediction', color='#A23B72', alpha=0.9)
+    
+    ax.set_title(f"Training Snapshot (Epoch {epoch})", fontsize=12, fontweight='bold')
+    ax.set_ylabel("SOMSC (g C/m²)")
+    ax.set_xlabel("Month Index")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
+        plt.savefig(os.path.join(save_dir, f"epoch_{epoch}_sample.png"))
+    
+    plt.close(fig) # Close to free memory
+
+def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
@@ -197,6 +239,21 @@ def train_epoch(model, train_loader, optimizer, device, config):
         optimizer.zero_grad()
         out = model(batch)
         
+        if batch_idx == 1:
+            # Take index 0 from the batch
+            # detached from graph, moved to cpu, converted to numpy
+            sample_pred = out["somsc_pred"][0].detach().cpu().numpy()
+            sample_true = batch["somsc"][0].detach().cpu().numpy()
+            sample_mask = batch["somsc_mask"][0].detach().cpu().numpy()
+            
+            # Call helper function
+            # Ensure scaler is passed down from main()
+            plot_training_sample(
+                sample_pred, sample_true, sample_mask, 
+                scaler, epoch, batch_idx, 
+                save_dir=os.path.join(config.output_dir, "train_plots")
+            )
+        # ---------------------
         # SOMSC loss
         somsc_target = batch["somsc"]
         somsc_mask = batch["somsc_mask"]
@@ -264,11 +321,16 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     print(f"Step 7: Training for {config.training.epochs} epochs...")
     print(f"{'='*80}\n")
     
+    # LOAD SCALER (Add this before the loop)
+    scaler_path = config.get_scaler_path() # Or hardcode path if needed
+    print(f"Loading scaler from {scaler_path} for plotting...")
+    scaler = joblib.load(scaler_path)
+
     best_val_loss = float('inf')
     
     for epoch in range(config.training.epochs):
         # Train
-        train_loss = train_epoch(model, train_loader, optimizer, device, config)
+        train_loss = train_epoch(model, train_loader, optimizer, device, config, scaler, epoch)
         
         # Validate (if val_loader exists)
         if val_loader:

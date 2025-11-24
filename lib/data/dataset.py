@@ -305,6 +305,22 @@ class DayCentDatasetV2(Dataset):
         scenario_id = self.scenario_ids[scenario_idx] # str
         year = self.years[year_idx]                 # int
         pid = self.point_ids[point_idx]               # str
+
+        prev_year = year - 1
+        
+        # 2. Fetch Previous Year's Output (The State)
+        # We need the LAST valid value from the previous year (usually Month 12)
+        prev_key = (scenario_id, pid, prev_year)
+        prev_somsc_state = 0.0 # Default if t=0 or missing
+        
+        if prev_key in self.output_index:
+            indices = self.output_index[prev_key]
+            last_idx = indices[-1] 
+            val = self.output_somsc[last_idx]
+            
+            if not np.isnan(val):
+                prev_somsc_state = val
+        
         
         # 2. Get weather data using pre-computed index (O(1) hash lookup)
         weather_key = (pid, year)
@@ -401,5 +417,6 @@ class DayCentDatasetV2(Dataset):
             "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),
             "pid": pid,
             "year": str(year), # return str for consistency
-            "scenario_id": scenario_id
+            "scenario_id": scenario_id,
+            "prev_somsc_state": torch.tensor(prev_somsc_state, dtype=torch.float32),
         }

@@ -24,9 +24,9 @@ data:
     
     # Years: can use explicit list or range
     year_range:
-      start: 2000
-      end: 2020  # Will use years 2000-2020
-  
+      start: 2002
+      end: 2020  # Will use years 2002-2020
+
   # Validation split configuration
   val:
     scenario_range:
@@ -52,9 +52,12 @@ data:
       - '55'
     
     quadrants:
-      - 'Q3 (NW)'
+      - 'Q4 (NE)'
 
-    years: [2020, 2021, 2022, 2023, 2024]  # Explicit year list
+    # years: [2020, 2021, 2022, 2023, 2024]  # Explicit year list
+    year_range:
+      start: 2020
+      end: 2024
 
 model: # this is not yet implemented. model just takes args from sample size
   hidden_dim: 64
