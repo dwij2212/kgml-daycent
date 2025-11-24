@@ -200,7 +200,7 @@ def train_epoch(model, train_loader, optimizer, device, config):
         # SOMSC loss
         somsc_target = batch["somsc"]
         somsc_mask = batch["somsc_mask"]
-        somsc_loss = ((out["somsc_pred"].squeeze(-1) - somsc_target)**2 * somsc_mask).sum() / somsc_mask.sum()
+        somsc_loss = ((out["somsc_pred"] - somsc_target)**2 * somsc_mask).sum() / somsc_mask.sum()
         
         # Yield loss
         yield_target = batch["yield"]
@@ -213,8 +213,9 @@ def train_epoch(model, train_loader, optimizer, device, config):
         loss = alpha * somsc_loss + beta * yield_loss
         
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
-        
+
         total_loss += loss.item() * batch["sequence"].size(0)
     
     return total_loss / len(train_loader.dataset)
@@ -249,8 +250,10 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     optimizer = optim.Adam(model.parameters(), lr=config.training.learning_rate)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 
+        mode='min',
         factor=config.training.scheduler_factor,
-        patience=config.training.scheduler_patience
+        patience=config.training.scheduler_patience,
+        min_lr=1e-7
     )
     
     # Step 6: Initialize W&B
@@ -283,10 +286,10 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
             print(f"  Val Total:  {val_total_loss:.4f}")
         
         # Save best model
-        if val_loader and val_yield_loss < best_val_loss:
-            best_val_loss = val_yield_loss
+        if val_loader and val_somsc_loss < best_val_loss:
+            best_val_loss = val_somsc_loss
             torch.save(model.state_dict(), config.get_model_path())
-            print(f"  ✓ Saved best model (val_yield_loss: {val_yield_loss:.4f})")
+            print(f"  ✓ Saved best model (val_somsc_loss: {val_somsc_loss:.4f})")
         elif not val_loader:
             # If no validation set, save based on train loss
             torch.save(model.state_dict(), config.get_model_path())
@@ -310,7 +313,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
             wandb_run.log(log_dict)
         
         # Update learning rate
-        scheduler.step(train_loss)
+        scheduler.step(val_somsc_loss if val_loader else train_loss)
     
     # Step 8: Final evaluation on test set
     if test_loader:

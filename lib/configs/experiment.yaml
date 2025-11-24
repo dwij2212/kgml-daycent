@@ -1,8 +1,8 @@
 # Experiment 12 Configuration
 # Example: Small test with flexible train/val/test splits using DayCentDatasetV2
 
-experiment_id: experiment12
-description: "Quick test experiment with DayCentDatasetV2 - flexible train/val/test splits"
+experiment_id: experiment14
+description: "SOMSC Modelling focus"
 
 data:
   base_dir: /users/6/mehta423/daycent/data/SAS_KGML_090925
@@ -14,30 +14,32 @@ data:
     # Scenarios: can use explicit list or range
     scenario_range:
       start: 1
-      end: 100  # Will use scenarios 1-100
+      end: 50  # Will use scenarios 1-50
     
     # Points: can use quadrants or explicit list (explicit takes precedence)
     quadrants:
       - 'Q1 (SW)'
+      - 'Q3 (NW)'
     # points: ['1', '2', '3']  # Uncomment to use explicit points instead
     
     # Years: can use explicit list or range
     year_range:
       start: 2000
-      end: 2015  # Will use years 2000-2015
+      end: 2020  # Will use years 2000-2020
   
   # Validation split configuration
   val:
     scenario_range:
-      start: 5000
-      end: 5010
-    
+      start: 1
+      end: 50
+
     quadrants:
-      - 'Q2 (SE)'
+      - 'Q1 (SW)'
+      - 'Q3 (NW)'
     
     year_range:
-      start: 2000
-      end: 2015
+      start: 2015
+      end: 2020
   
   # Test split configuration
   test:
@@ -51,7 +53,6 @@ data:
     
     quadrants:
       - 'Q3 (NW)'
-      - 'Q4 (NE)'
 
     years: [2020, 2021, 2022, 2023, 2024]  # Explicit year list
 
@@ -62,12 +63,12 @@ model: # this is not yet implemented. model just takes args from sample size
 
 training:
   batch_size: 2048
-  epochs: 20
+  epochs: 50
   learning_rate: 0.001
   device: cuda:2
   
-  somsc_loss_weight: 1.0
-  yield_loss_weight: 1.0
+  somsc_loss_weight: 5.0
+  yield_loss_weight: 0
   
   scheduler_factor: 0.5
   scheduler_patience: 3
@@ -76,10 +77,10 @@ training:
   num_workers: 2
 
 wandb:
-  enabled: false  # Disable for quick tests
+  enabled: true  # Disable for quick tests
   project: daycent
-  name: experiment12/datasetv2-test
-  notes: "Testing DayCentDatasetV2 with flexible splits"
+  name: "experiment14/somsc_focus"
+  notes: "Focusing on SOMSC modeling, first test run."
   tags:
     - test
     - datasetv2

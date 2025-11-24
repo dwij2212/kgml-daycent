@@ -48,12 +48,19 @@ class DayCentModel(nn.Module):
         )
 
         # Attention heads
-        self.somsc_attn = AttentionPooling(hidden_dim, hidden_dim)
+        # FIX 1: Separate attention for each month
+        self.somsc_attns = nn.ModuleList([
+            AttentionPooling(hidden_dim, hidden_dim) for _ in range(12)
+        ])
+        
+        # FIX 2: Separate output head for each month
+        self.somsc_heads = nn.ModuleList([
+            nn.Linear(hidden_dim, 1) for _ in range(12)
+        ])
+        
+        # Yield prediction
         self.yield_attn = AttentionPooling(hidden_dim, hidden_dim)
-
-        # Output layers
-        self.somsc_head = nn.Linear(hidden_dim, 1)  # monthly but gets stacked in forward pass
-        self.yield_head = nn.Linear(hidden_dim, 1)   # yearly
+        self.yield_head = nn.Linear(hidden_dim, 1)
 
     def forward(self, batch):
         seq = batch["sequence"]             # (B, 365, F)
@@ -73,21 +80,27 @@ class DayCentModel(nn.Module):
         x = torch.cat([daily_latent, global_latent], dim=-1)  # (B, 365, 2*latent)
         h, _ = self.lstm(x)                                   # (B, 365, H)
 
-        # ---- SOMSC head ----
+        # ---- SOMSC head (per month) ----
         somsc_preds = []
         somsc_attns = []
         ranges = month_day_ranges()
+
         for m, (start, end) in enumerate(ranges):
+            # Create mask: can see days [0, end)
             mask = torch.zeros(h.shape[:2], dtype=torch.bool, device=h.device)
-            mask[:, 0:end] = True
-            pooled, attn = self.somsc_attn(h, mask=mask)
-            pred = self.somsc_head(pooled)
+            mask[:, :end] = True  # Clearer syntax
+            
+            # Use month-specific attention and head
+            pooled, attn = self.somsc_attns[m](h, mask=mask)
+            pred = self.somsc_heads[m](pooled)
+            
             somsc_preds.append(pred)
             somsc_attns.append(attn)
-        somsc_preds = torch.stack(somsc_preds, dim=1)  # (B,12)
-
+        
+        somsc_preds = torch.stack(somsc_preds, dim=1).squeeze(-1)  # (B, 12)
+        
         # ---- Yield head ----
-        yield_repr, yield_attn = self.yield_attn(h, mask=harvest_mask)  # (B, H)
+        yield_repr, yield_attn = self.yield_attn(h, mask=harvest_mask)
         yield_pred = self.yield_head(yield_repr).squeeze(-1)            # (B,)
 
         return {

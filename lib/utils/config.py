@@ -112,6 +112,7 @@ class DataConfig:
         self.init_cond_file = os.path.join(self.input_dir, "initial_site_conditions.xlsx")
         scenarios_suffix = "Synthetic_10000" if self.use_synthetic else "Realistic_8"
         self.scenarios_file = os.path.join(self.input_dir, f"schedule_scenarios_all_{scenarios_suffix}.csv")
+        self.scenario_ids = self.get_all_scenario_ids()
     
     def get_all_scenario_ids(self) -> List[str]:
         """Get all unique scenario IDs across all splits."""
