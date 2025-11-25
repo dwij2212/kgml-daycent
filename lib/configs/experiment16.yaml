@@ -1,7 +1,7 @@
-# Experiment 12 Configuration
+# Experiment 16 Configuration
 # Example: Small test with flexible train/val/test splits using DayCentDatasetV2
 
-experiment_id: experiment15
+experiment_id: experiment16
 description: "SOMSC and Yield Modelling focus"
 
 data:
@@ -68,7 +68,7 @@ training:
   batch_size: 2048
   epochs: 50
   learning_rate: 0.001
-  device: cuda:2
+  device: cuda:3
   
   somsc_loss_weight: 5.0
   yield_loss_weight: 1.0
@@ -82,8 +82,8 @@ training:
 wandb:
   enabled: true  # Disable for quick tests
   project: daycent
-  name: "experiment15/somsc_yield_focus"
-  notes: "Focusing on SOMSC and Yield modeling, 2nd test run, dynamic loss weighting."
+  name: "experiment16/somsc_yield_focus"
+  notes: "Focusing on SOMSC and Yield modeling, without init_cond input."
   tags:
     - test
     - datasetv2

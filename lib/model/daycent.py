@@ -11,6 +11,23 @@ def month_day_ranges():
         s += m
     return list(zip(starts, ends))   # 0-indexed day ranges
 
+class MultiTaskLoss(nn.Module):
+    def __init__(self, num_tasks=2):
+        super().__init__()
+        # We learn log_vars (log variance) for numerical stability
+        self.log_vars = nn.Parameter(torch.zeros(num_tasks))
+
+    def forward(self, loss_somsc, loss_yield):
+        # Task 1: SOMSC
+        precision1 = torch.exp(-self.log_vars[0])
+        weighted_loss1 = precision1 * loss_somsc + self.log_vars[0]
+
+        # Task 2: Yield
+        precision2 = torch.exp(-self.log_vars[1])
+        weighted_loss2 = precision2 * loss_yield + self.log_vars[1]
+
+        return weighted_loss1 + weighted_loss2
+    
 class AttentionPooling(nn.Module):
     """Generic attention pooling over time dimension."""
     def __init__(self, input_dim, output_dim):
@@ -68,6 +85,8 @@ class DayCentModel(nn.Module):
     def forward(self, batch):
         seq = batch["sequence"]             # (B, 365, F)
         init_cond = batch["init_cond"]      # (B, I)
+        # make init cond 0 for ablation
+        # init_cond = torch.zeros_like(init_cond)
         year_enc = batch["year_enc"]        # (B, Y)
         harvest_mask = batch["harvest_mask"]# (B, 365)
         prev_somsc = batch["prev_somsc_state"].unsqueeze(-1)  # (B, 1)
@@ -92,7 +111,7 @@ class DayCentModel(nn.Module):
         ranges = month_day_ranges()
 
         current_val = prev_somsc.squeeze(-1) # (B, )
-        
+
 
         for m, (start, end) in enumerate(ranges):
             # Create mask: can see days [0, end)

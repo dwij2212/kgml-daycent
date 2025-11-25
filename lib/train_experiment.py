@@ -18,7 +18,7 @@ import joblib
 from utils.config import ExperimentConfig
 from data.preprocessing import prepare_experiment_data, prepare_data_for_datasetv2
 from data import DayCentDataset, DayCentDatasetV2
-from model import DayCentModel
+from model import DayCentModel, MultiTaskLoss
 from utils import evaluate
 
 
@@ -225,7 +225,7 @@ def plot_training_sample(pred_seq, true_seq, mask, scaler, epoch, batch_idx, sav
     
     plt.close(fig) # Close to free memory
 
-def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch):
+def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch, mtl_loss):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
@@ -239,20 +239,20 @@ def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch):
         optimizer.zero_grad()
         out = model(batch)
         
-        if batch_idx == 1:
-            # Take index 0 from the batch
-            # detached from graph, moved to cpu, converted to numpy
-            sample_pred = out["somsc_pred"][0].detach().cpu().numpy()
-            sample_true = batch["somsc"][0].detach().cpu().numpy()
-            sample_mask = batch["somsc_mask"][0].detach().cpu().numpy()
+        # if batch_idx == 1:
+        #     # Take index 0 from the batch
+        #     # detached from graph, moved to cpu, converted to numpy
+        #     sample_pred = out["somsc_pred"][0].detach().cpu().numpy()
+        #     sample_true = batch["somsc"][0].detach().cpu().numpy()
+        #     sample_mask = batch["somsc_mask"][0].detach().cpu().numpy()
             
-            # Call helper function
-            # Ensure scaler is passed down from main()
-            plot_training_sample(
-                sample_pred, sample_true, sample_mask, 
-                scaler, epoch, batch_idx, 
-                save_dir=os.path.join(config.output_dir, "train_plots")
-            )
+        #     # Call helper function
+        #     # Ensure scaler is passed down from main()
+        #     plot_training_sample(
+        #         sample_pred, sample_true, sample_mask, 
+        #         scaler, epoch, batch_idx, 
+        #         save_dir=os.path.join(config.output_dir, "train_plots")
+        #     )
         # ---------------------
         # SOMSC loss
         somsc_target = batch["somsc"]
@@ -265,10 +265,12 @@ def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch):
         yield_loss = ((out["yield_pred"] - yield_target)**2 * yield_mask).sum() / yield_mask.sum()
         
         # Total loss
-        alpha = config.training.somsc_loss_weight
-        beta = config.training.yield_loss_weight
-        loss = alpha * somsc_loss + beta * yield_loss
+        # alpha = config.training.somsc_loss_weight
+        # beta = config.training.yield_loss_weight
+        # loss = alpha * somsc_loss + beta * yield_loss
         
+        loss = mtl_loss(somsc_loss, yield_loss)
+
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
@@ -304,7 +306,12 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     
     # Step 5: Initialize optimizer and scheduler
     print("Step 5: Initializing optimizer and scheduler...")
-    optimizer = optim.Adam(model.parameters(), lr=config.training.learning_rate)
+    mtl_loss = MultiTaskLoss().to(device)
+    # Add these params to your optimizer so they get updated!
+    optimizer = optim.Adam(
+        list(model.parameters()) + list(mtl_loss.parameters()), 
+        lr=config.training.learning_rate
+    )
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, 
         mode='min',
@@ -330,7 +337,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     
     for epoch in range(config.training.epochs):
         # Train
-        train_loss = train_epoch(model, train_loader, optimizer, device, config, scaler, epoch)
+        train_loss = train_epoch(model, train_loader, optimizer, device, config, scaler, epoch, mtl_loss)
         
         # Validate (if val_loader exists)
         if val_loader:
@@ -348,10 +355,10 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
             print(f"  Val Total:  {val_total_loss:.4f}")
         
         # Save best model
-        if val_loader and val_somsc_loss < best_val_loss:
-            best_val_loss = val_somsc_loss
+        if val_loader and val_total_loss < best_val_loss:
+            best_val_loss = val_total_loss
             torch.save(model.state_dict(), config.get_model_path())
-            print(f"  ✓ Saved best model (val_somsc_loss: {val_somsc_loss:.4f})")
+            print(f"  ✓ Saved best model (val_total_loss: {val_total_loss:.4f})")
         elif not val_loader:
             # If no validation set, save based on train loss
             torch.save(model.state_dict(), config.get_model_path())
@@ -375,7 +382,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
             wandb_run.log(log_dict)
         
         # Update learning rate
-        scheduler.step(val_somsc_loss if val_loader else train_loss)
+        scheduler.step(val_total_loss if val_loader else train_loss)
     
     # Step 8: Final evaluation on test set
     if test_loader:
