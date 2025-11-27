@@ -14,11 +14,12 @@ from torch.utils.data import DataLoader, Subset
 from torch import optim
 from tqdm import tqdm
 import joblib
+from torch.optim.lr_scheduler import LambdaLR
 
 from utils.config import ExperimentConfig
 from data.preprocessing import prepare_experiment_data, prepare_data_for_datasetv2
 from data import DayCentDataset, DayCentDatasetV2
-from model import DayCentModel, MultiTaskLoss
+from model import DayCentModel, DayCentTransformer, MultiTaskLoss
 from utils import evaluate
 
 
@@ -140,12 +141,31 @@ def initialize_model(config: ExperimentConfig, sample_data: dict):
     config.model.init_dim = init_dim
     config.model.year_dim = year_dim
     
-    # Create model
-    model = DayCentModel(
-        input_dim=seq_feat_dim, 
-        init_dim=init_dim, 
-        year_dim=year_dim
-    )
+    # Choose model type
+    if config.model.model_type == "daycent":
+        print("Using DayCentModel (LSTM + Attention)")
+        model = DayCentModel(
+            input_dim=seq_feat_dim, 
+            init_dim=init_dim, 
+            year_dim=year_dim,
+            latent_dim=config.model.latent_dim,
+            hidden_dim=config.model.hidden_dim,
+            lstm_layers=config.model.lstm_layers
+        )
+    elif config.model.model_type == "transformer":
+        print("Using DayCentTransformer Model")
+        model = DayCentTransformer(
+            input_dim=seq_feat_dim,
+            init_dim=init_dim,
+            year_dim=year_dim,
+            d_model=config.model.d_model,
+            nhead=config.model.nhead,
+            num_layers=config.model.num_layers,
+            dim_feedforward=config.model.dim_feedforward,
+            dropout=config.model.dropout
+        )
+    else:
+        raise ValueError(f"Unknown model type: {config.model.model_type}")
     
     device = torch.device(config.training.device if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -183,54 +203,26 @@ def initialize_wandb(config: ExperimentConfig):
         print("Warning: wandb not installed. Skipping W&B logging.\n")
         return None
 
-import matplotlib.pyplot as plt
-import wandb
-
-def plot_training_sample(pred_seq, true_seq, mask, scaler, epoch, batch_idx, save_dir=None):
+def get_linear_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps):
     """
-    Plots a single sample's SOMSC trajectory during training.
+    Creates a schedule with a learning rate that decreases linearly from the initial lr set in the optimizer to 0,
+    after a warmup period during which it increases linearly from 0 to the initial lr set in the optimizer.
     """
-    # 1. Inverse Transform (Un-normalize)
-    # Assuming scaler was fit on [SOMSC, Yield, ...] 
-    # scaler.mean_[0] is SOMSC mean, scaler.scale_[0] is SOMSC std
-    somsc_mean = scaler.mean_[0]
-    somsc_scale = scaler.scale_[0]
-    
-    pred_real = (pred_seq * somsc_scale) + somsc_mean
-    true_real = (true_seq * somsc_scale) + somsc_mean
-    
-    # 2. Filter masked values (if mask is 0, don't plot or cut off)
-    # Simply using the mask to filter arrays for plotting
-    valid_indices = mask > 0
-    
-    # Convert to numpy and flatten
-    pred_plot = pred_real[valid_indices]
-    true_plot = true_real[valid_indices]
-    months = np.arange(len(pred_plot))
-    
-    # 3. Create Plot
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.plot(months, true_plot, 'o-', label='Ground Truth', color='#2E86AB', alpha=0.7)
-    ax.plot(months, pred_plot, 's--', label='Prediction', color='#A23B72', alpha=0.9)
-    
-    ax.set_title(f"Training Snapshot (Epoch {epoch})", fontsize=12, fontweight='bold')
-    ax.set_ylabel("SOMSC (g C/m²)")
-    ax.set_xlabel("Month Index")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    
-    if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
-        plt.savefig(os.path.join(save_dir, f"epoch_{epoch}_sample.png"))
-    
-    plt.close(fig) # Close to free memory
+    def lr_lambda(current_step):
+        if current_step < num_warmup_steps:
+            return float(current_step) / float(max(1, num_warmup_steps))
+        return max(
+            0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps))
+        )
 
-def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch, mtl_loss):
+    return LambdaLR(optimizer, lr_lambda)
+
+def train_epoch(model, train_loader, optimizer, device, config, epoch, mtl_loss):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
 
-    for batch_idx, batch in tqdm(enumerate(train_loader, 1), total=len(train_loader)):
+    for _, batch in tqdm(enumerate(train_loader, 1), total=len(train_loader)):
     
         # Move to device
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
@@ -239,21 +231,6 @@ def train_epoch(model, train_loader, optimizer, device, config, scaler, epoch, m
         optimizer.zero_grad()
         out = model(batch)
         
-        # if batch_idx == 1:
-        #     # Take index 0 from the batch
-        #     # detached from graph, moved to cpu, converted to numpy
-        #     sample_pred = out["somsc_pred"][0].detach().cpu().numpy()
-        #     sample_true = batch["somsc"][0].detach().cpu().numpy()
-        #     sample_mask = batch["somsc_mask"][0].detach().cpu().numpy()
-            
-        #     # Call helper function
-        #     # Ensure scaler is passed down from main()
-        #     plot_training_sample(
-        #         sample_pred, sample_true, sample_mask, 
-        #         scaler, epoch, batch_idx, 
-        #         save_dir=os.path.join(config.output_dir, "train_plots")
-        #     )
-        # ---------------------
         # SOMSC loss
         somsc_target = batch["somsc"]
         somsc_mask = batch["somsc_mask"]
@@ -308,16 +285,25 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     print("Step 5: Initializing optimizer and scheduler...")
     mtl_loss = MultiTaskLoss().to(device)
     # Add these params to your optimizer so they get updated!
-    optimizer = optim.Adam(
+    optimizer = optim.AdamW(
         list(model.parameters()) + list(mtl_loss.parameters()), 
-        lr=config.training.learning_rate
+        lr=config.training.learning_rate,
+        weight_decay=0.1 
     )
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+
+    # CHANGE 3: Calculate total steps for the scheduler
+    # We need to know exactly how many batches we will process
+    steps_per_epoch = len(train_loader)
+    total_training_steps = steps_per_epoch * config.training.epochs
+    
+    # CHANGE 4: Warmup for 20% of training steps
+    num_warmup_steps = int(0.2 * total_training_steps)
+    
+    # CHANGE 5: Replace ReduceLROnPlateau with Warmup+Decay
+    scheduler = get_linear_schedule_with_warmup(
         optimizer, 
-        mode='min',
-        factor=config.training.scheduler_factor,
-        patience=config.training.scheduler_patience,
-        min_lr=1e-7
+        num_warmup_steps=num_warmup_steps, 
+        num_training_steps=total_training_steps
     )
     
     # Step 6: Initialize W&B
@@ -327,19 +313,44 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     # Step 7: Training loop
     print(f"Step 7: Training for {config.training.epochs} epochs...")
     print(f"{'='*80}\n")
-    
-    # LOAD SCALER (Add this before the loop)
-    scaler_path = config.get_scaler_path() # Or hardcode path if needed
-    print(f"Loading scaler from {scaler_path} for plotting...")
-    scaler = joblib.load(scaler_path)
 
     best_val_loss = float('inf')
     
     for epoch in range(config.training.epochs):
-        # Train
-        train_loss = train_epoch(model, train_loader, optimizer, device, config, scaler, epoch, mtl_loss)
+        # --- MODIFIED TRAINING LOOP START ---
+        model.train()
+        total_train_loss = 0.0
         
-        # Validate (if val_loader exists)
+        # We need to unpack the training loop to step the scheduler PER BATCH
+        for batch_idx, batch in tqdm(enumerate(train_loader, 1), total=len(train_loader)):
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                     for k, v in batch.items()}
+            
+            optimizer.zero_grad()
+            out = model(batch)
+            
+            # Loss calculation
+            somsc_loss = ((out["somsc_pred"] - batch["somsc"])**2 * batch["somsc_mask"]).sum() / batch["somsc_mask"].sum()
+            yield_loss = ((out["yield_pred"] - batch["yield"])**2 * batch["yield_mask"]).sum() / batch["yield_mask"].sum()
+            # loss = mtl_loss(somsc_loss, yield_loss)
+            alpha = config.training.somsc_loss_weight
+            beta = config.training.yield_loss_weight
+            loss = alpha * somsc_loss + beta * yield_loss
+
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=0.5)
+            
+            optimizer.step()
+            
+            # CHANGE 6: Step the scheduler every batch, not every epoch
+            scheduler.step()
+
+            total_train_loss += loss.item() * batch["sequence"].size(0)
+        
+        avg_train_loss = total_train_loss / len(train_loader.dataset)
+        # --- MODIFIED TRAINING LOOP END ---
+        
+        # Validate
         if val_loader:
             val_somsc_loss, val_yield_loss = evaluate(model, val_loader, device)
             val_total_loss = val_somsc_loss + val_yield_loss
@@ -347,31 +358,24 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
             val_somsc_loss = val_yield_loss = val_total_loss = 0.0
         
         # Print progress
-        print(f"Epoch {epoch+1}/{config.training.epochs}")
-        print(f"  Train Loss: {train_loss:.4f}")
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch {epoch+1}/{config.training.epochs} | LR: {current_lr:.8f}")
+        print(f"  Train Loss: {avg_train_loss:.4f}")
         if val_loader:
-            print(f"  Val SOMSC:  {val_somsc_loss:.4f}")
-            print(f"  Val Yield:  {val_yield_loss:.4f}")
             print(f"  Val Total:  {val_total_loss:.4f}")
         
-        # Save best model
+        # Save best model logic... [Remains the same]
         if val_loader and val_total_loss < best_val_loss:
             best_val_loss = val_total_loss
             torch.save(model.state_dict(), config.get_model_path())
-            print(f"  ✓ Saved best model (val_total_loss: {val_total_loss:.4f})")
-        elif not val_loader:
-            # If no validation set, save based on train loss
-            torch.save(model.state_dict(), config.get_model_path())
-            print(f"  ✓ Saved model checkpoint")
-        
-        print()
+            print(f"  ✓ Saved best model")
         
         # Log to W&B
         if wandb_run:
             log_dict = {
                 "epoch": epoch + 1,
-                "train_loss": train_loss,
-                "learning_rate": optimizer.param_groups[0]['lr'],
+                "train_loss": avg_train_loss,
+                "learning_rate": current_lr, # Log the current LR
             }
             if val_loader:
                 log_dict.update({
@@ -380,9 +384,6 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
                     "val_total_loss": val_total_loss,
                 })
             wandb_run.log(log_dict)
-        
-        # Update learning rate
-        scheduler.step(val_total_loss if val_loader else train_loss)
     
     # Step 8: Final evaluation on test set
     if test_loader:
@@ -392,13 +393,6 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
         print(f"  Test SOMSC Loss: {test_somsc_loss:.4f}")
         print(f"  Test Yield Loss: {test_yield_loss:.4f}")
         print(f"  Test Total Loss: {test_somsc_loss + test_yield_loss:.4f}")
-        
-        if wandb_run:
-            wandb_run.log({
-                "test_somsc_loss": test_somsc_loss,
-                "test_yield_loss": test_yield_loss,
-                "test_total_loss": test_somsc_loss + test_yield_loss,
-            })
     
     if wandb_run:
         wandb_run.finish()

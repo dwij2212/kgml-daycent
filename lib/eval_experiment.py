@@ -21,6 +21,7 @@ from utils.config import ExperimentConfig
 from data.preprocessing import prepare_data_for_datasetv2
 from data import DayCentDatasetV2
 from model import DayCentModel
+from train_experiment import initialize_model
 
 
 def collect_predictions(model, loader, device):
@@ -486,17 +487,8 @@ def evaluate(config: ExperimentConfig, split: str = 'test',
     print(f"  Dataset size: {len(dataset)}")
     
     # Step 3: Load model
-    print("\nStep 3: Loading model...")
     sample = dataset[0]
-    seq_feat_dim = sample["sequence"].shape[1]
-    init_dim = sample["init_cond"].shape[0]
-    year_dim = sample["year_enc"].shape[0]
-    
-    print(f"  Input features: {seq_feat_dim}")
-    print(f"  Init cond dim:  {init_dim}")
-    print(f"  Year enc dim:   {year_dim}")
-    
-    model = DayCentModel(input_dim=seq_feat_dim, init_dim=init_dim, year_dim=year_dim)
+    model, device = initialize_model(config, sample)
     
     model_path = config.get_model_path()
     if not os.path.exists(model_path):

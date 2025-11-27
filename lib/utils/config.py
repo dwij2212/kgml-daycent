@@ -166,14 +166,23 @@ class DataConfig:
 @dataclass
 class ModelConfig:
     """Configuration for model architecture."""
+    model_type: str = "transformer"  # Options: 'daycent', 'transformer'
+
+    # Transformer-specific hyperparameters
+    d_model: int = 128
+    nhead: int = 4
+    num_layers: int = 3
+    dim_feedforward: int = 512
+
     # Will be inferred from data
     input_dim: Optional[int] = None
     init_dim: Optional[int] = None
     year_dim: Optional[int] = None
     
-    # Model hyperparameters (can be customized)
+    # daycent-specific hyperparameters
     hidden_dim: int = 128
-    num_layers: int = 2
+    latent_dim: int = 32
+    lstm_layers: int = 2
     dropout: float = 0.2
 
 

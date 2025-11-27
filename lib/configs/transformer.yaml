@@ -1,0 +1,96 @@
+# Experiment 12 Configuration
+# Example: Small test with flexible train/val/test splits using DayCentDatasetV2
+
+experiment_id: experiment17
+description: "SOMSC Modelling focus"
+
+data:
+  base_dir: /users/6/mehta423/daycent/data/SAS_KGML_090925
+  use_synthetic: true
+  max_workers: 4
+  
+  # Train split configuration
+  train:
+    # Scenarios: can use explicit list or range
+    scenario_range:
+      start: 1
+      end: 100  # Will use scenarios 1-100
+    
+    # Points: can use quadrants or explicit list (explicit takes precedence)
+    quadrants:
+      - 'Q1 (SW)'
+      - 'Q3 (NW)'
+    # points: ['1', '2', '3']  # Uncomment to use explicit points instead
+    
+    # Years: can use explicit list or range
+    year_range:
+      start: 2002
+      end: 2019  # Will use years 2002-2020
+
+  # Validation split configuration
+  val:
+    scenario_range:
+      start: 1
+      end: 50
+
+    quadrants:
+      - 'Q1 (SW)'
+      - 'Q3 (NW)'
+    
+    year_range:
+      start: 2015
+      end: 2020
+  
+  # Test split configuration
+  test:
+    # Example with explicit scenario list
+    scenarios:
+      - '51'
+      - '52'
+      - '53'
+      - '54'
+      - '55'
+    
+    quadrants:
+      - 'Q4 (NE)'
+
+    # years: [2020, 2021, 2022, 2023, 2024]  # Explicit year list
+    year_range:
+      start: 2020
+      end: 2024
+
+model:
+  model_type: transformer
+  d_model: 128
+  nhead: 4
+  num_layers: 2
+  dim_feedforward: 256
+  dropout: 0.2
+  hidden_dim: 64
+  dropout: 0.3
+
+training:
+  batch_size: 4096
+  epochs: 50
+  learning_rate: 0.00005
+  device: cuda:2
+  
+  somsc_loss_weight: 100.0
+  yield_loss_weight: 1.0
+  
+  scheduler_factor: 0.5
+  scheduler_patience: 3
+  
+  random_seed: 42
+  num_workers: 2
+
+wandb:
+  enabled: true  # Disable for quick tests
+  project: daycent
+  name: "experiment17/transformer_first_test"
+  notes: "First time changing the architecture. Running a very small test to debug."
+  tags:
+    - test
+    - datasetv2
+    - debug
+
