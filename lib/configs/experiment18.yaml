@@ -1,8 +1,8 @@
 # Experiment 16 Configuration
 # Example: Small test with flexible train/val/test splits using DayCentDatasetV2
 
-experiment_id: experiment16
-description: "SOMSC and Yield Modelling focus"
+experiment_id: experiment18
+description: "Yield Modelling focus with nlinear simple model"
 
 data:
   base_dir: /users/6/mehta423/daycent/data/SAS_KGML_090925
@@ -59,22 +59,34 @@ data:
       start: 2020
       end: 2024
 
-model: # this is not yet implemented. model just takes args from sample size
-  hidden_dim: 64
-  num_layers: 1
-  dropout: 0.1
-
+model:
+  model_type: nlinear_simple # all arguments are inferred from a sample
+  
 training:
   batch_size: 2048
   epochs: 50
-  learning_rate: 0.001
-  device: cuda:3
+  device: cuda:2
   
-  somsc_loss_weight: 5.0
+  somsc_loss_weight: 0.0
   yield_loss_weight: 1.0
+  grad_clip_norm: 1.0
   
-  scheduler_factor: 0.5
-  scheduler_patience: 3
+  # Optimizer configuration
+  optimizer:
+    name: adamw
+    lr: 0.001
+    weight_decay: 0.01
+  
+  # Scheduler configuration
+  # scheduler:
+  #   name: warmup_cosine
+  #   warmup_ratio: 0.1
+  #   min_lr_ratio: 0.01
+
+  scheduler:
+    name: cosine
+    eta_min: 0.0001
+
   
   random_seed: 42
   num_workers: 2
@@ -82,8 +94,8 @@ training:
 wandb:
   enabled: true  # Disable for quick tests
   project: daycent
-  name: "experiment16/somsc_yield_focus"
-  notes: "Focusing on SOMSC and Yield modeling, without init_cond input."
+  name: "experiment18/nlinear_simple"
+  notes: "Focusing on only Yield modeling using nlinear_simple model."
   tags:
     - test
     - datasetv2

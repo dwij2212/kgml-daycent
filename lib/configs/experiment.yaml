@@ -1,6 +1,3 @@
-# Experiment 12 Configuration
-# Example: Small test with flexible train/val/test splits using DayCentDatasetV2
-
 experiment_id: experiment15
 description: "SOMSC and Yield Modelling focus"
 
@@ -52,29 +49,51 @@ data:
       - '55'
     
     quadrants:
-      - 'Q4 (NE)'
+      - 'Q3 (NW)'
 
     # years: [2020, 2021, 2022, 2023, 2024]  # Explicit year list
     year_range:
       start: 2020
       end: 2024
 
-model: # this is not yet implemented. model just takes args from sample size
+model:
+  model_type: daycent        # Options: 'daycent' or 'transformer'
+  # For daycent (LSTM) model:
   hidden_dim: 64
-  num_layers: 1
+  latent_dim: 32
+  lstm_layers: 1
   dropout: 0.1
+  # For transformer model (uncomment if using model_type: transformer):
+  # d_model: 128
+  # nhead: 4
+  # num_layers: 2
+  # dim_feedforward: 256
 
 training:
   batch_size: 2048
   epochs: 50
-  learning_rate: 0.001
   device: cuda:2
   
-  somsc_loss_weight: 5.0
+  somsc_loss_weight: 10.0
   yield_loss_weight: 1.0
+  grad_clip_norm: 1.0
   
-  scheduler_factor: 0.5
-  scheduler_patience: 3
+  # Optimizer configuration
+  optimizer:
+    name: adamw
+    lr: 0.01
+    weight_decay: 0.01
+  
+  # Scheduler configuration
+  # scheduler:
+  #   name: warmup_cosine
+  #   warmup_ratio: 0.1
+  #   min_lr_ratio: 0.01
+
+  scheduler:
+    name: cosine
+    eta_min: 0.001
+
   
   random_seed: 42
   num_workers: 2
