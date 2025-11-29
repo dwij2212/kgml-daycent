@@ -191,18 +191,37 @@ class TrainingConfig:
     """Configuration for training."""
     batch_size: int = 2048
     epochs: int = 100
-    learning_rate: float = 1e-2
-    device: str = "cuda:2"
+    device: str = "cuda:0"
     
     # Loss weights
     somsc_loss_weight: float = 1.0
     yield_loss_weight: float = 1.0
     
-    # Scheduler
+    # Gradient clipping
+    grad_clip_norm: float = 1.0
+    
+    # Optimizer configuration (dict-based for flexibility)
+    # Example: {'name': 'adamw', 'lr': 0.001, 'weight_decay': 0.01}
+    optimizer: Dict[str, Any] = field(default_factory=lambda: {
+        'name': 'adamw',
+        'lr': 1e-3,
+        'weight_decay': 0.01,
+        'betas': [0.9, 0.999]
+    })
+    
+    # Scheduler configuration (dict-based for flexibility)
+    # Example: {'name': 'warmup_cosine', 'warmup_ratio': 0.1}
+    scheduler: Dict[str, Any] = field(default_factory=lambda: {
+        'name': 'warmup_linear',
+        'warmup_ratio': 0.1
+    })
+    
+    # Legacy fields (kept for backward compatibility)
+    learning_rate: float = 1e-3  # Fallback if optimizer.lr not specified
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     
-    # Data split
+    # Data split (legacy)
     num_scenarios: int = 50
     train_ratio: float = 0.7
     val_ratio: float = 0.2
@@ -211,6 +230,16 @@ class TrainingConfig:
     # Reproducibility
     random_seed: int = 42
     num_workers: int = 4
+    
+    def __post_init__(self):
+        """Ensure optimizer has lr field for backward compatibility."""
+        if isinstance(self.optimizer, dict) and 'lr' not in self.optimizer:
+            self.optimizer['lr'] = self.learning_rate
+        # Ensure optimizer is a dict (handle YAML loading)
+        if not isinstance(self.optimizer, dict):
+            self.optimizer = {'name': 'adamw', 'lr': self.learning_rate}
+        if not isinstance(self.scheduler, dict):
+            self.scheduler = {'name': 'warmup_linear', 'warmup_ratio': 0.1}
 
 
 @dataclass

@@ -3,6 +3,8 @@ import torch.nn as nn
 import math
 
 from model.daycent import AttentionPooling, month_day_ranges
+from model.registry import register_model
+
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=366, dropout=0.1):
@@ -25,9 +27,11 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:, :x.size(1), :]
         return self.dropout(x)
 
+
+@register_model("transformer")
 class DayCentTransformer(nn.Module):
     def __init__(self, input_dim, init_dim, year_dim, 
-                 d_model=128, nhead=4, num_layers=3, dim_feedforward=512, dropout=0.1):
+                 d_model=128, nhead=4, num_layers=3, dim_feedforward=512, dropout=0.1, **kwargs):
         super().__init__()
 
         # 1. Input Projections

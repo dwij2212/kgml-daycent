@@ -1,6 +1,8 @@
 import torch
 from torch import nn
 
+from model.registry import register_model
+
 def month_day_ranges():
     mdays = [31,28,31,30,31,30,31,31,30,31,30,31]
     starts, ends = [], []
@@ -46,8 +48,9 @@ class AttentionPooling(nn.Module):
         return self.proj(pooled), attn_weights
 
 
+@register_model("daycent")
 class DayCentModel(nn.Module):
-    def __init__(self, input_dim, init_dim, year_dim, hidden_dim=128, latent_dim=32, lstm_layers=2):
+    def __init__(self, input_dim, init_dim, year_dim, hidden_dim=128, latent_dim=32, lstm_layers=2, **kwargs):
         super().__init__()
 
         # for previous somsc state
@@ -68,12 +71,10 @@ class DayCentModel(nn.Module):
         )
 
         # Attention heads
-        # FIX 1: Separate attention for each month
         self.somsc_attns = nn.ModuleList([
             AttentionPooling(hidden_dim, hidden_dim) for _ in range(12)
         ])
         
-        # FIX 2: Separate output head for each month
         self.somsc_heads = nn.ModuleList([
             nn.Linear(hidden_dim, 1) for _ in range(12)
         ])
@@ -112,19 +113,18 @@ class DayCentModel(nn.Module):
 
         current_val = prev_somsc.squeeze(-1) # (B, )
 
-
         for m, (start, end) in enumerate(ranges):
-            # Create mask: can see days [0, end)
+            # Create mask: can see days [start, end)
             mask = torch.zeros(h.shape[:2], dtype=torch.bool, device=h.device)
             mask[:, :end] = True  # Clearer syntax
             
             # Use month-specific attention and head
             pooled, attn = self.somsc_attns[m](h, mask=mask)
-            delta = self.somsc_heads[m](pooled).squeeze(-1) # (B, )
+            pred = self.somsc_heads[m](pooled).squeeze(-1) # (B, )
             
             # The absolute prediction is accumulation of deltas
-            current_val = current_val + delta
-            somsc_preds.append(current_val)
+            # current_val = current_val + delta
+            somsc_preds.append(pred)
             somsc_attns.append(attn)
         
         somsc_preds = torch.stack(somsc_preds, dim=1).squeeze(-1)  # (B, 12)
