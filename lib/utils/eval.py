@@ -1,5 +1,7 @@
 import torch
 
+from .training import compute_masked_mse
+
 def evaluate(model, loader, device):
     model.eval()
     total_somsc_loss = 0.0
@@ -13,15 +15,25 @@ def evaluate(model, loader, device):
             out = model(batch)
 
             # SOMSC masked MSE
-            pred_somsc = out["somsc_pred"].squeeze(-1)          # (B, 12)
-            target_somsc = batch["somsc"]                      # (B, 12)
-            mask_somsc = batch["somsc_mask"]                   # (B, 12) -- float tensor with 1/0 (or cast it)
+            
 
-            mask_sum = mask_somsc.sum()
-            if mask_sum.item() > 0:
-                somsc_loss = ((pred_somsc - target_somsc)**2 * mask_somsc).sum() / mask_sum
+            # SOMSC loss
+            if "somsc_delta_pred" in out and "somsc_deltas" in batch:
+                
+                # Primary Objective: Match the Rate of Change (Deltas)
+                somsc_loss = compute_masked_mse(
+                    out["somsc_delta_pred"], 
+                    batch["somsc_deltas"], 
+                    batch["somsc_delta_mask"]
+                )
+                
             else:
-                somsc_loss = torch.tensor(0.0, device=device)
+                # Fallback for legacy models (predicting absolute only)
+                somsc_loss = compute_masked_mse(
+                    out["somsc_pred"], 
+                    batch["somsc"], 
+                    batch["somsc_mask"]
+                )
 
             # Yield masked MSE
             pred_yield = out["yield_pred"]                     # (B,)

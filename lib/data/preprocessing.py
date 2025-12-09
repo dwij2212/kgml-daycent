@@ -199,14 +199,45 @@ def load_data(scenario_ids: list, weather_df: pd.DataFrame, scenarios_file: str,
 
     return X_daily, Y
 
+def calculate_somsc_deltas(output_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate monthly SOMSC deltas (changes) for each scenario-point-year combination.
+    
+    Delta for month M = SOMSC(M) - SOMSC(M-1)
+    Delta for month 1 = SOMSC(month 1) - SOMSC(month 12 of previous year)
+    
+    Args:
+        output_df: DataFrame with output data containing 'somsc' column, sorted by 
+                   (scenario_id, point_id, Year, month)
+    
+    Returns:
+        DataFrame with additional 'somsc_delta' column
+    """
+    print("Calculating SOMSC deltas...")
+    
+    # Ensure proper sorting
+    output_df = output_df.sort_values(['scenario_id', 'point_id', 'Year', 'month']).copy()
+    
+    # Calculate delta as difference from previous row within each scenario-point group
+    output_df['somsc_delta'] = output_df.groupby(['scenario_id', 'point_id'])['somsc'].diff()
+    
+    # For the first month of each scenario-point combination, delta will be NaN
+    # This is correct behavior - we don't have a previous value to compare against
+    
+    num_deltas = output_df['somsc_delta'].notna().sum()
+    num_nan = output_df['somsc_delta'].isna().sum()
+    print(f"  Calculated {num_deltas} valid deltas, {num_nan} NaN values (expected for first months)")
+    
+    return output_df
+
 
 def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_ids: list, 
                       train_years: list, scaler_path: str = None):
     """
-    Normalize output variables (somsc, cgrain) using StandardScaler fitted on training data.
+    Normalize output variables (somsc, cgrain, somsc_delta) using StandardScaler fitted on training data.
     
     Args:
-        output_df: DataFrame with output data containing 'somsc' and 'cgrain' columns
+        output_df: DataFrame with output data containing 'somsc', 'cgrain', and optionally 'somsc_delta' columns
         train_pids: List of training point IDs (strings)
         train_scenario_ids: List of training scenario IDs (strings like '8050')
         train_years: List of training years (integers)
@@ -215,6 +246,12 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
     Returns:
         tuple: (normalized_output_df, scaler_Y)
     """
+    # Determine which columns to normalize
+    output_cols = ['somsc', 'cgrain']
+    has_delta = 'somsc_delta' in output_df.columns
+    if has_delta:
+        output_cols.append('somsc_delta')
+    
     if scaler_path and os.path.exists(scaler_path):
         scaler_Y = joblib.load(scaler_path)
         print(f"Loaded existing scaler from {scaler_path}")
@@ -227,7 +264,15 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
         train_Y = output_df[train_mask].copy()
         
         scaler_Y = StandardScaler()
-        scaler_Y.fit(train_Y[['somsc', 'cgrain']])
+        # For somsc_delta, we need to handle NaN values - fit only on valid values
+        if has_delta:
+            # Create a copy without NaN for fitting
+            train_Y_for_fit = train_Y[output_cols].copy()
+            # Replace NaN in somsc_delta with 0 temporarily for fitting (will be masked later)
+            train_Y_for_fit['somsc_delta'] = train_Y_for_fit['somsc_delta'].fillna(0)
+            scaler_Y.fit(train_Y_for_fit)
+        else:
+            scaler_Y.fit(train_Y[output_cols])
         
         if scaler_path:
             os.makedirs(os.path.dirname(scaler_path), exist_ok=True)
@@ -237,6 +282,8 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
         print(f"Output normalization fitted on {len(train_Y)} training samples")
         print(f"  SOMSC - mean: {scaler_Y.mean_[0]:.4f}, std: {scaler_Y.scale_[0]:.4f}")
         print(f"  CGRAIN - mean: {scaler_Y.mean_[1]:.4f}, std: {scaler_Y.scale_[1]:.4f}")
+        if has_delta:
+            print(f"  SOMSC_DELTA - mean: {scaler_Y.mean_[2]:.4f}, std: {scaler_Y.scale_[2]:.4f}")
     
     train_mask = (
         (output_df['point_id'].isin(train_pids)) & 
@@ -246,8 +293,25 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
     train_Y = output_df[train_mask].copy()
     test_Y = output_df[~train_mask].copy()
     
-    train_Y[['somsc', 'cgrain']] = scaler_Y.transform(train_Y[['somsc', 'cgrain']])
-    test_Y[['somsc', 'cgrain']] = scaler_Y.transform(test_Y[['somsc', 'cgrain']])
+    # Transform - handle NaN in somsc_delta by preserving them
+    if has_delta:
+        # Save NaN locations
+        train_delta_nan = train_Y['somsc_delta'].isna()
+        test_delta_nan = test_Y['somsc_delta'].isna()
+        
+        # Fill NaN temporarily for transform
+        train_Y['somsc_delta'] = train_Y['somsc_delta'].fillna(0)
+        test_Y['somsc_delta'] = test_Y['somsc_delta'].fillna(0)
+        
+        train_Y[output_cols] = scaler_Y.transform(train_Y[output_cols])
+        test_Y[output_cols] = scaler_Y.transform(test_Y[output_cols])
+        
+        # Restore NaN values
+        train_Y.loc[train_delta_nan, 'somsc_delta'] = np.nan
+        test_Y.loc[test_delta_nan, 'somsc_delta'] = np.nan
+    else:
+        train_Y[output_cols] = scaler_Y.transform(train_Y[output_cols])
+        test_Y[output_cols] = scaler_Y.transform(test_Y[output_cols])
     
     output_normalized = pd.concat([train_Y, test_Y], ignore_index=True)
     output_normalized.sort_values(['scenario_id', 'point_id', 'Year', 'doy'], inplace=True)
@@ -268,9 +332,9 @@ def prepare_data_for_datasetv2(config):
         dict: {
             'weather_df': normalized weather DataFrame,
             'management_df': management DataFrame,
-            'output_df': normalized output DataFrame,
+            'output_df': normalized output DataFrame (includes 'somsc_delta' column),
             'weather_scaler': fitted weather scaler,
-            'output_scaler': fitted output scaler
+            'output_scaler': fitted output scaler (includes somsc, cgrain, somsc_delta)
         }
     """
     from utils.config import ExperimentConfig
@@ -318,7 +382,11 @@ def prepare_data_for_datasetv2(config):
     print(f"   Using {len(train_pids)} training points for fitting")
     weather_df, weather_scaler = normalize_weather_data(weather_df, train_pids)
     
-    print(f"\n5. Normalizing output data...")
+    # Calculate SOMSC deltas BEFORE normalization (on raw values)
+    print(f"\n5. Calculating SOMSC deltas...")
+    output_df = calculate_somsc_deltas(output_df)
+    
+    print(f"\n6. Normalizing output data (somsc, cgrain, somsc_delta)...")
     print(f"   Using training split: {len(train_scenario_ids)} scenarios, "
           f"{len(train_pids)} points, {len(train_years)} years")
     output_df, output_scaler = normalize_outputs(

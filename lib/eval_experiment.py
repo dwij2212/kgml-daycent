@@ -31,9 +31,12 @@ def collect_predictions(model, loader, device):
     all_yield_preds = []
     all_yield_trues = []
     all_yield_masks = []
-    all_somsc_preds = []
+    all_somsc_delta_preds = []
+    all_somsc_delta_trues = []
+    all_somsc_delta_masks = []
     all_somsc_trues = []
     all_somsc_masks = []
+    all_prev_somsc_states = []
     all_metadata = []
     
     print("Running inference...")
@@ -46,9 +49,18 @@ def collect_predictions(model, loader, device):
         all_yield_preds.append(outputs['yield_pred'].cpu().numpy())
         all_yield_trues.append(batch['yield'].cpu().numpy())
         all_yield_masks.append(batch['yield_mask'].cpu().numpy())
-        all_somsc_preds.append(outputs['somsc_pred'].cpu().numpy())
+        
+        # Collect delta predictions and ground truth
+        all_somsc_delta_preds.append(outputs['somsc_delta_pred'].cpu().numpy())
+        all_somsc_delta_trues.append(batch['somsc_deltas'].cpu().numpy())
+        all_somsc_delta_masks.append(batch['somsc_delta_mask'].cpu().numpy())
+        
+        # Also collect absolute SOMSC ground truth for comparison
         all_somsc_trues.append(batch['somsc'].cpu().numpy())
         all_somsc_masks.append(batch['somsc_mask'].cpu().numpy())
+        
+        # Collect prev_somsc_state for reconstructing absolute predictions
+        all_prev_somsc_states.append(batch['prev_somsc_state'].cpu().numpy())
         
         batch_size = len(batch['pid'])
         for i in range(batch_size):
@@ -62,14 +74,18 @@ def collect_predictions(model, loader, device):
         'yield_pred': np.concatenate(all_yield_preds, axis=0),
         'yield_true': np.concatenate(all_yield_trues, axis=0),
         'yield_mask': np.concatenate(all_yield_masks, axis=0),
-        'somsc_pred': np.concatenate(all_somsc_preds, axis=0),
+        'somsc_delta_pred': np.concatenate(all_somsc_delta_preds, axis=0),
+        'somsc_delta_true': np.concatenate(all_somsc_delta_trues, axis=0),
+        'somsc_delta_mask': np.concatenate(all_somsc_delta_masks, axis=0),
         'somsc_true': np.concatenate(all_somsc_trues, axis=0),
         'somsc_mask': np.concatenate(all_somsc_masks, axis=0),
+        'prev_somsc_state': np.concatenate(all_prev_somsc_states, axis=0),
         'metadata': all_metadata
     }
     
-    if predictions['somsc_pred'].ndim == 3 and predictions['somsc_pred'].shape[2] == 1:
-        predictions['somsc_pred'] = predictions['somsc_pred'].squeeze(-1)
+    # Handle any extra dimensions
+    if predictions['somsc_delta_pred'].ndim == 3 and predictions['somsc_delta_pred'].shape[2] == 1:
+        predictions['somsc_delta_pred'] = predictions['somsc_delta_pred'].squeeze(-1)
     if predictions['somsc_true'].ndim == 3 and predictions['somsc_true'].shape[2] == 1:
         predictions['somsc_true'] = predictions['somsc_true'].squeeze(-1)
     
@@ -77,7 +93,7 @@ def collect_predictions(model, loader, device):
 
 
 def inverse_transform_predictions(predictions, scaler_path):
-    """Apply inverse transformation to normalized predictions."""
+    """Apply inverse transformation to normalized predictions and reconstruct absolute SOMSC."""
     scaler_Y = joblib.load(scaler_path)
     
     cgrain_mean = scaler_Y.mean_[1]
@@ -85,16 +101,44 @@ def inverse_transform_predictions(predictions, scaler_path):
     somsc_mean = scaler_Y.mean_[0]
     somsc_scale = scaler_Y.scale_[0]
     
+    # Check if scaler has delta parameters (index 2)
+    if len(scaler_Y.mean_) > 2:
+        delta_mean = scaler_Y.mean_[2]
+        delta_scale = scaler_Y.scale_[2]
+    else:
+        # Fallback: use somsc scale for deltas (less accurate)
+        print("  WARNING: Scaler does not have delta parameters, using SOMSC scale")
+        delta_mean = 0.0
+        delta_scale = somsc_scale
+    
     print("\nInverse transforming predictions...")
     print(f"  CGRAIN - mean: {cgrain_mean:.4f}, scale: {cgrain_scale:.4f}")
     print(f"  SOMSC - mean: {somsc_mean:.4f}, scale: {somsc_scale:.4f}")
+    print(f"  SOMSC_DELTA - mean: {delta_mean:.4f}, scale: {delta_scale:.4f}")
     
-    # Inverse transform without applying mask - mask is for filtering only
+    # Inverse transform yield
     yield_pred = predictions['yield_pred'] * cgrain_scale + cgrain_mean
     yield_true = predictions['yield_true'] * cgrain_scale + cgrain_mean
     
-    somsc_pred = predictions['somsc_pred'] * somsc_scale + somsc_mean
+    # Inverse transform absolute SOMSC ground truth
     somsc_true = predictions['somsc_true'] * somsc_scale + somsc_mean
+    
+    # Inverse transform prev_somsc_state (normalized with absolute SOMSC scaler)
+    prev_somsc_state = predictions['prev_somsc_state'] * somsc_scale + somsc_mean
+    
+    # Inverse transform delta predictions
+    somsc_delta_pred = predictions['somsc_delta_pred'] * delta_scale + delta_mean
+    somsc_delta_true = predictions['somsc_delta_true'] * delta_scale + delta_mean
+    
+    # Reconstruct absolute SOMSC predictions by accumulating deltas
+    # somsc_pred[:, m] = prev_somsc_state + cumsum(deltas[:, :m+1])
+    print("  Reconstructing absolute SOMSC from deltas...")
+    somsc_pred = np.zeros_like(somsc_delta_pred)
+    for m in range(12):
+        if m == 0:
+            somsc_pred[:, m] = prev_somsc_state + somsc_delta_pred[:, m]
+        else:
+            somsc_pred[:, m] = somsc_pred[:, m-1] + somsc_delta_pred[:, m]
     
     return {
         'yield_pred': yield_pred,
@@ -103,6 +147,9 @@ def inverse_transform_predictions(predictions, scaler_path):
         'somsc_pred': somsc_pred,
         'somsc_true': somsc_true,
         'somsc_mask': predictions['somsc_mask'],
+        'somsc_delta_pred': somsc_delta_pred,
+        'somsc_delta_true': somsc_delta_true,
+        'somsc_delta_mask': predictions['somsc_delta_mask'],
         'metadata': predictions['metadata']
     }
 

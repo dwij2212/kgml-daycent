@@ -250,6 +250,16 @@ class DayCentDatasetV2(Dataset):
         self.output_cgrain = output_df['cgrain'].to_numpy()
         self.output_month = output_df['month'].to_numpy()
         
+        # Store somsc_delta if available (pre-calculated in preprocessing)
+        if 'somsc_delta' in output_df.columns:
+            self.output_somsc_delta = output_df['somsc_delta'].to_numpy()
+            self.has_somsc_delta = True
+            print("    Found pre-calculated somsc_delta column")
+        else:
+            self.output_somsc_delta = None
+            self.has_somsc_delta = False
+            print("    No somsc_delta column found - deltas will not be available")
+        
         # Find group boundaries
         group_keys_df = output_df[['scenario_id', 'point_id', 'Year']]
         is_new_group = (group_keys_df != group_keys_df.shift()).any(axis=1)
@@ -383,6 +393,7 @@ class DayCentDatasetV2(Dataset):
         # 10. Get outputs using pre-computed index (O(1) hash lookup)
         output_key = (scenario_id, pid, year)
         somsc_array = np.full(12, np.nan, dtype=np.float32)
+        somsc_delta_array = np.full(12, np.nan, dtype=np.float32)
         yield_val = 0.0
         yield_mask = 0.0
         
@@ -395,6 +406,12 @@ class DayCentDatasetV2(Dataset):
                 somsc_val = self.output_somsc[idx_pos]
                 if not np.isnan(somsc_val) and 1 <= month <= 12:
                     somsc_array[month - 1] = somsc_val
+                
+                # Process SOMSC delta if available
+                if self.has_somsc_delta:
+                    delta_val = self.output_somsc_delta[idx_pos]
+                    if not np.isnan(delta_val) and 1 <= month <= 12:
+                        somsc_delta_array[month - 1] = delta_val
             
             # Process CGRAIN (annual value) - take first non-NaN value
             cgrain_vals = self.output_cgrain[indices]
@@ -406,12 +423,18 @@ class DayCentDatasetV2(Dataset):
         somsc_mask = ~np.isnan(somsc_array)
         somsc_array = np.nan_to_num(somsc_array, nan=0.0)
         
+        # SOMSC delta mask - valid where we have delta values
+        somsc_delta_mask = ~np.isnan(somsc_delta_array)
+        somsc_delta_array = np.nan_to_num(somsc_delta_array, nan=0.0)
+        
         return {
             "sequence": torch.tensor(seq, dtype=torch.float32),
             "init_cond": torch.tensor(init_cond, dtype=torch.float32),
             "year_enc": torch.tensor(year_pe, dtype=torch.float32),
             "somsc": torch.tensor(somsc_array, dtype=torch.float32),
             "somsc_mask": torch.tensor(somsc_mask.astype(np.float32)),
+            "somsc_deltas": torch.tensor(somsc_delta_array, dtype=torch.float32),
+            "somsc_delta_mask": torch.tensor(somsc_delta_mask.astype(np.float32)),
             "yield": torch.tensor(yield_val, dtype=torch.float32),
             "yield_mask": torch.tensor(yield_mask, dtype=torch.float32),
             "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),

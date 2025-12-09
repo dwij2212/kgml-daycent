@@ -9,7 +9,6 @@ from .registry import register_model, build_model, list_models, get_model_class
 # Import models to trigger registration
 from .daycent import DayCentModel, MultiTaskLoss
 from .transformer import DayCentTransformer
-from .nlinear import NLinearSimple
 
 __all__ = [
     # Registry functions
@@ -17,7 +16,6 @@ __all__ = [
 
     'DayCentModel',
     'DayCentTransformer',
-    'NLinearSimple',
 
     'MultiTaskLoss',
 ]

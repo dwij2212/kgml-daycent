@@ -78,19 +78,15 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, config,
         
         loss.backward()
         
-        # Gradient clipping
         grad_clipper(model.parameters())
-        
         optimizer.step()
         
-        # Step scheduler per batch (for warmup schedules)
         if step_scheduler_per_batch and scheduler is not None:
             scheduler.step()
         
         total_loss += loss.item() * batch["sequence"].size(0)
     
     return total_loss / len(train_loader.dataset)
-
 
 def train(config: ExperimentConfig, skip_data_prep: bool = False):
     """
@@ -194,7 +190,9 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
         # Validate
         if val_loader:
             val_somsc_loss, val_yield_loss = evaluate(model, val_loader, device)
-            val_total_loss = val_somsc_loss + val_yield_loss
+            alpha = config.training.somsc_loss_weight
+            beta = config.training.yield_loss_weight
+            val_total_loss = (alpha * val_somsc_loss) + (beta * val_yield_loss)
         else:
             val_somsc_loss = val_yield_loss = val_total_loss = 0.0
         
@@ -211,7 +209,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
         # Save best model
         if val_loader:
             saved = checkpoint_manager.save(
-                value=val_yield_loss,
+                value=val_total_loss,
                 epoch=epoch,
                 extra_state={
                     'optimizer_state_dict': optimizer.state_dict(),
@@ -219,7 +217,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
                 }
             )
             if saved:
-                print(f"  ✓ Saved best model (val_yield_loss: {val_yield_loss:.4f})")
+                print(f"  ✓ Saved best model (val_total_loss: {val_total_loss:.4f})")
 
         # Log to W&B
         log_dict = {

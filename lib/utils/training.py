@@ -100,10 +100,22 @@ def compute_losses(outputs: Dict[str, torch.Tensor],
         Dictionary with 'somsc_loss', 'yield_loss' tensors
     """
     # SOMSC loss
-    somsc_pred = outputs["somsc_pred"]
-    somsc_target = batch["somsc"]
-    somsc_mask = batch["somsc_mask"]
-    somsc_loss = compute_masked_mse(somsc_pred, somsc_target, somsc_mask)
+    if "somsc_delta_pred" in outputs and "somsc_deltas" in batch:
+        
+        # Primary Objective: Match the Rate of Change (Deltas)
+        somsc_loss = compute_masked_mse(
+            outputs["somsc_delta_pred"], 
+            batch["somsc_deltas"], 
+            batch["somsc_delta_mask"]
+        )
+        
+    else:
+        # Fallback for legacy models (predicting absolute only)
+        somsc_loss = compute_masked_mse(
+            outputs["somsc_pred"], 
+            batch["somsc"], 
+            batch["somsc_mask"]
+        )
     
     # Yield loss
     yield_pred = outputs["yield_pred"]

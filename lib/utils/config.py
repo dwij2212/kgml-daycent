@@ -204,8 +204,8 @@ class TrainingConfig:
     # Example: {'name': 'adamw', 'lr': 0.001, 'weight_decay': 0.01}
     optimizer: Dict[str, Any] = field(default_factory=lambda: {
         'name': 'adamw',
-        'lr': 1e-3,
-        'weight_decay': 0.01,
+        'lr': 1e-1,
+        'weight_decay': 0.0001,
         'betas': [0.9, 0.999]
     })
     
@@ -217,7 +217,7 @@ class TrainingConfig:
     })
     
     # Legacy fields (kept for backward compatibility)
-    learning_rate: float = 1e-3  # Fallback if optimizer.lr not specified
+    learning_rate: float = 1e-2  # Fallback if optimizer.lr not specified
     scheduler_factor: float = 0.5
     scheduler_patience: int = 5
     

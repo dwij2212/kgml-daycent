@@ -107,11 +107,9 @@ class DayCentModel(nn.Module):
         h, _ = self.lstm(x)                                   # (B, 365, H)
 
         # ---- SOMSC head (per month) ----
-        somsc_preds = []
+        somsc_deltas = []
         somsc_attns = []
         ranges = month_day_ranges()
-
-        current_val = prev_somsc.squeeze(-1) # (B, )
 
         for m, (start, end) in enumerate(ranges):
             # Create mask: can see days [start, end)
@@ -120,21 +118,19 @@ class DayCentModel(nn.Module):
             
             # Use month-specific attention and head
             pooled, attn = self.somsc_attns[m](h, mask=mask)
-            pred = self.somsc_heads[m](pooled).squeeze(-1) # (B, )
+            delta = self.somsc_heads[m](pooled).squeeze(-1)  # (B, )
             
-            # The absolute prediction is accumulation of deltas
-            # current_val = current_val + delta
-            somsc_preds.append(pred)
+            somsc_deltas.append(delta)
             somsc_attns.append(attn)
         
-        somsc_preds = torch.stack(somsc_preds, dim=1).squeeze(-1)  # (B, 12)
+        somsc_deltas = torch.stack(somsc_deltas, dim=1).squeeze(-1)  # (B, 12)
         
         # ---- Yield head ----
         yield_repr, yield_attn = self.yield_attn(h, mask=harvest_mask)
         yield_pred = self.yield_head(yield_repr).squeeze(-1)            # (B,)
 
         return {
-            "somsc_pred": somsc_preds,
+            "somsc_delta_pred": somsc_deltas,
             "yield_pred": yield_pred,
             "somsc_attn": somsc_attns,
             "yield_attn": yield_attn

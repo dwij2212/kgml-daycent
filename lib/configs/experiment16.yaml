@@ -60,6 +60,7 @@ data:
       end: 2024
 
 model: # this is not yet implemented. model just takes args from sample size
+  model_type: daycent
   hidden_dim: 64
   num_layers: 1
   dropout: 0.1
@@ -67,11 +68,18 @@ model: # this is not yet implemented. model just takes args from sample size
 training:
   batch_size: 2048
   epochs: 50
-  learning_rate: 0.001
   device: cuda:3
+
+  optimizer:
+    name: adamw
+    weight_decay: 0.001
+    lr: 0.01
+
+  scheduler:
+    name: none
   
   somsc_loss_weight: 5.0
-  yield_loss_weight: 1.0
+  yield_loss_weight: 0
   
   scheduler_factor: 0.5
   scheduler_patience: 3
