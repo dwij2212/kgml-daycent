@@ -140,7 +140,7 @@ class DayCentDatasetV2(Dataset):
         
         # Get management feature columns (exclude identifiers)
         self.mgmt_cols = [c for c in management_df.columns 
-                         if c not in ['scenario_id', 'Year', 'doy']]
+                         if c not in ['scenario_id', 'Year', 'doy', 'id']]
         
         # Create VIRTUAL index mapping for this split
         if not split_config:
@@ -186,6 +186,7 @@ class DayCentDatasetV2(Dataset):
         # Ensure correct types and sort
         weather_df['point_id'] = weather_df['point_id'].astype(str)
         weather_df['Year'] = weather_df['Year'].astype(int)
+        weather_df.rename(columns={'DOY':'doy'}, inplace=True)
         weather_df = weather_df.sort_values(['point_id', 'Year', 'doy'])
         
         self.weather_arrays = weather_df[['Tmax', 'Tmin', 'Precip']].to_numpy()
@@ -214,14 +215,17 @@ class DayCentDatasetV2(Dataset):
         # Ensure correct types and sort
         management_df['scenario_id'] = management_df['scenario_id'].astype(str)
         management_df['Year'] = management_df['Year'].astype(int)
-        management_df = management_df.sort_values(['scenario_id', 'Year', 'doy'])
+        management_df['id'] = management_df['id'].astype(str)
+        management_df = management_df.sort_values(['scenario_id', 'Year', 'id', 'doy'])
         
         self.mgmt_arrays = management_df[self.mgmt_cols].to_numpy()
         self.mgmt_doy = management_df['doy'].to_numpy()
         
         # Find group boundaries
-        group_keys_df = management_df[['scenario_id', 'Year']]
+        group_keys_df = management_df[['scenario_id', 'Year', 'id']]
         is_new_group = (group_keys_df != group_keys_df.shift()).any(axis=1)
+
+        # rows start:end represent a single (scenario, year) pair
         group_start_indices = np.where(is_new_group)[0]
         group_end_indices = np.append(group_start_indices[1:], len(management_df))
         group_keys = group_keys_df.iloc[group_start_indices].values
@@ -229,7 +233,7 @@ class DayCentDatasetV2(Dataset):
         # Build hash map
         self.mgmt_index = {}
         for i in range(len(group_start_indices)):
-            key_tuple = (group_keys[i, 0], group_keys[i, 1]) # (sid_str, year_int)
+            key_tuple = (group_keys[i, 0], group_keys[i, 1], group_keys[i, 2]) # (sid_str, year_int, id_str)
             start, end = group_start_indices[i], group_end_indices[i]
             # Store as list of (doy, row_idx) for this scenario-year
             # We use the original indices from the sorted array
@@ -334,7 +338,7 @@ class DayCentDatasetV2(Dataset):
             weather_doys = np.array([], dtype=np.int32)
         
         # 3. Get management data using pre-computed index (O(1) hash lookup)
-        mgmt_key = (scenario_id, year)
+        mgmt_key = (scenario_id, year, pid)
         if mgmt_key in self.mgmt_index:
             mgmt_events = self.mgmt_index[mgmt_key]  # List of (doy, row_idx)
         else:
@@ -344,10 +348,10 @@ class DayCentDatasetV2(Dataset):
         seq = np.zeros((365, 3 + len(self.mgmt_cols)), dtype=np.float32)
         
         # Fill in weather data (map doy to array index)
-        for i, doy in enumerate(weather_doys):
-            if 1 <= doy <= 365:
-                seq[int(doy) - 1, :3] = weather_vals[i]
-        
+        valid_mask = (weather_doys >= 1) & (weather_doys <= 365) 
+        valid_doys = weather_doys[valid_mask].astype(int) - 1  # 0-indexed
+        seq[valid_doys, :3] = weather_vals[valid_mask]
+
         # Fill in management data (map doy to array index)
         for doy, row_idx in mgmt_events:
             if 1 <= doy <= 365:

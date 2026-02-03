@@ -60,7 +60,11 @@ class SplitConfig:
     
     def _get_points_from_quadrants(self, points_lookup_path: str, quadrants: List[str]) -> List[str]:
         """Get point IDs from quadrant names."""
-        df = pd.read_csv(points_lookup_path)
+
+        try:
+            df = pd.read_excel(points_lookup_path)
+        except Exception:
+            df = pd.read_csv(points_lookup_path)
         
         # Calculate medians for splitting
         median_x = df['POINT_X'].median()
@@ -102,16 +106,27 @@ class DataConfig:
     # Processing options
     max_workers: int = 10
     use_synthetic: bool = True  # True for Synthetic_10000, False for Realistic_8
+    legacy_dir_structure: bool = True  # Whether to use legacy directory structure
     
     def __post_init__(self):
-        self.input_dir = os.path.join(self.base_dir, "InputData")
-        output_subdir = "OutputData_Synthetic_10000" if self.use_synthetic else "OutputData_Realistic_8"
-        self.output_dir = os.path.join(self.base_dir, output_subdir)
-        self.weather_dir = os.path.join(self.input_dir, "WeatherData")
-        self.points_lookup = os.path.join(self.base_dir, "SAS_points_lookup.csv")
-        self.init_cond_file = os.path.join(self.input_dir, "initial_site_conditions.xlsx")
-        scenarios_suffix = "Synthetic_10000" if self.use_synthetic else "Realistic_8"
-        self.scenarios_file = os.path.join(self.input_dir, f"schedule_scenarios_all_{scenarios_suffix}.csv")
+        if self.legacy_dir_structure:
+            self.input_dir = os.path.join(self.base_dir, "InputData")
+            output_subdir = "OutputData_Synthetic_10000" if self.use_synthetic else "OutputData_Realistic_8"
+            self.output_dir = os.path.join(self.base_dir, output_subdir)
+            self.weather_dir = os.path.join(self.input_dir, "WeatherData")
+            self.points_lookup = os.path.join(self.base_dir, "SAS_points_lookup.csv")
+            self.init_cond_file = os.path.join(self.input_dir, "initial_site_conditions.xlsx")
+            scenarios_suffix = "Synthetic_10000" if self.use_synthetic else "Realistic_8"
+            self.scenarios_file = os.path.join(self.input_dir, f"schedule_scenarios_all_{scenarios_suffix}.csv")
+
+        else:
+            self.input_dir = os.path.join(self.base_dir, "inputs")
+            self.output_dir = os.path.join(self.base_dir, "outputs")
+            self.weather_dir = os.path.join(self.input_dir, "Weather")
+            self.points_lookup = os.path.join(self.input_dir, "Midwest_lookupTable.xlsx")
+            self.init_cond_file = os.path.join(self.input_dir, "initial_site_conditions.xlsx")
+            self.scenarios_file = os.path.join(self.input_dir, "consolidated_management_scenarios.csv")
+        
         self.scenario_ids = self.get_all_scenario_ids()
     
     def get_all_scenario_ids(self) -> List[str]:
@@ -128,6 +143,17 @@ class DataConfig:
                 all_scenarios.update(split.get_scenario_ids())
         
         return sorted(list(all_scenarios))
+    
+    def get_all_point_ids(self) -> List[str]:
+        """Get all unique point IDs across all splits."""
+        all_points = set()
+        
+        for split in [self.train, self.val, self.test]:
+            if split:
+                points = split.get_point_ids(self.points_lookup)
+                all_points.update(points)
+        
+        return sorted(list(all_points))
     
     def get_train_config(self) -> Dict[str, Any]:
         """Get training configuration in format expected by DayCentDatasetV2."""

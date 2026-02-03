@@ -16,16 +16,23 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-def load_weather_data(weather_dir: str) -> pd.DataFrame:
+def load_weather_data(weather_dir: str, all_point_ids: list=None) -> pd.DataFrame:
     """Load and concatenate all weather data files."""
     all_points = []
-    
-    for filename in os.listdir(weather_dir):
-        if not filename.endswith('.csv'):
-            continue
-        df = pd.read_csv(os.path.join(weather_dir, filename))
-        df['point_id'] = filename.split(".csv")[0]
-        all_points.append(df)
+
+    if all_point_ids is not None:
+        for pid in all_point_ids:
+            filepath = os.path.join(weather_dir, f"{pid}.csv")
+            df = pd.read_csv(filepath)
+            df['point_id'] = pid
+            all_points.append(df)
+    else:
+        for filename in os.listdir(weather_dir):
+            if not filename.endswith('.csv'):
+                continue
+            df = pd.read_csv(os.path.join(weather_dir, filename))
+            df['point_id'] = filename.split(".csv")[0]
+            all_points.append(df)
     
     weather_df = pd.concat(all_points, ignore_index=True)
     return weather_df
@@ -76,15 +83,19 @@ def normalize_weather_data(weather_df: pd.DataFrame, train_pids: list):
     train_weather[['Tmax', 'Tmin', 'Precip']] = scaler.fit_transform(
         train_weather[['Tmax', 'Tmin', 'Precip']]
     )
-    test_weather[['Tmax', 'Tmin', 'Precip']] = scaler.transform(
-        test_weather[['Tmax', 'Tmin', 'Precip']]
-    )
-    
+
+    try:
+        test_weather[['Tmax', 'Tmin', 'Precip']] = scaler.transform(
+            test_weather[['Tmax', 'Tmin', 'Precip']]
+        )
+    except ValueError:
+        print("Test data is inclusive of training data; skipping transformation on test set.")
+
     normalized_df = pd.concat([train_weather, test_weather], ignore_index=True)
     return normalized_df, scaler
 
 
-def load_single_scenario_output(scenario_id: str, output_dir: str):
+def load_single_scenario_output(scenario_id: str, output_dir: str, all_point_ids: list=None) -> pd.DataFrame:
     """Load output data for a single scenario."""
     month_to_doy = {1:30, 2:58, 3:89, 4:119, 5:150, 6:180, 7:211, 8:242, 9:272, 10:303, 11:333, 12:364}
     
@@ -108,10 +119,14 @@ def load_single_scenario_output(scenario_id: str, output_dir: str):
     output_df.sort_index(inplace=True)
 
     output_df['scenario_id'] = scenario_id
+
+    if all_point_ids is not None:
+        output_df = output_df[output_df['point_id'].isin(all_point_ids)]
+    
     return output_df
 
 
-def load_output_data(scenario_ids: list, output_dir: str, max_workers: int = None):
+def load_output_data(scenario_ids: list, output_dir: str, max_workers: int = None, legacy_dir_structure: bool = True, all_point_ids: list=None) -> pd.DataFrame:
     """
     Load output data for multiple scenarios using multithreading.
     
@@ -126,10 +141,16 @@ def load_output_data(scenario_ids: list, output_dir: str, max_workers: int = Non
     all_outputs = []
     
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_scenario = {
-            executor.submit(load_single_scenario_output, scenario_id, output_dir): scenario_id 
-            for scenario_id in scenario_ids
-        }
+        if legacy_dir_structure:
+            future_to_scenario = {
+                executor.submit(load_single_scenario_output, scenario_id, output_dir): scenario_id 
+                for scenario_id in scenario_ids
+            }
+        else:
+            future_to_scenario = {
+                executor.submit(load_single_scenario_output, scenario_id, f"{output_dir}/scenario_{scenario_id}", all_point_ids): scenario_id
+                for scenario_id in scenario_ids
+            }
         
         for future in tqdm(as_completed(future_to_scenario), 
                           desc="Loading scenarios", 
@@ -144,7 +165,7 @@ def load_output_data(scenario_ids: list, output_dir: str, max_workers: int = Non
     return pd.concat(all_outputs, ignore_index=True)
 
 
-def load_management_data(scenario_ids: list, scenarios_file: str):
+def load_management_data(scenario_ids: list, scenarios_file: str, legacy_dir_structure: bool = True) -> pd.DataFrame:
     """
     Load and pivot management schedule data.
     
@@ -154,6 +175,12 @@ def load_management_data(scenario_ids: list, scenarios_file: str):
     Returns:
         pd.DataFrame: Pivoted management data with scenario_id column
     """
+    # short circuit for testing
+    if not legacy_dir_structure:
+        return pd.read_csv(scenarios_file)
+
+    scenarios_file = "/users/6/mehta423/daycent/data/SAS_KGML_090925/InputData/schedule_scenarios_all_Synthetic_10000.csv"
+
     scenarios_df = pd.read_csv(scenarios_file).rename({'simyear': 'Year'}, axis=1)
     
     scenarios_df['scenario_id'] = scenarios_df['scenario'].str.replace('scenario_', '')
@@ -288,12 +315,13 @@ def prepare_data_for_datasetv2(config):
     
     # Load weather data
     print("\n1. Loading weather data...")
-    weather_df = load_weather_data(config.data.weather_dir)
+    all_point_ids = config.data.get_all_point_ids()
+    weather_df = load_weather_data(config.data.weather_dir, all_point_ids=all_point_ids)
     print(f"   Weather data shape: {weather_df.shape}")
     
     # Load management data
     print("\n2. Loading management data...")
-    management_df = load_management_data(all_scenario_ids, config.data.scenarios_file)
+    management_df = load_management_data(all_scenario_ids, config.data.scenarios_file, config.data.legacy_dir_structure)
     print(f"   Management data shape: {management_df.shape}")
     
     # Load output data
@@ -301,7 +329,9 @@ def prepare_data_for_datasetv2(config):
     output_df = load_output_data(
         all_scenario_ids,
         config.data.output_dir,
-        max_workers=config.data.max_workers
+        max_workers=config.data.max_workers,
+        legacy_dir_structure=config.data.legacy_dir_structure,
+        all_point_ids=all_point_ids
     )
     print(f"   Output data shape: {output_df.shape}")
     
