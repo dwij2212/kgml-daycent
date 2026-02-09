@@ -57,7 +57,7 @@ class DayCentModel(nn.Module):
         self.state_proj = nn.Linear(1, latent_dim)
 
         # project init conditions + year encoding → latent feature
-        self.init_proj = nn.Linear(init_dim + year_dim + latent_dim, latent_dim)
+        self.init_proj = nn.Linear(init_dim + year_dim, latent_dim)
 
         # project daily inputs → latent feature
         self.daily_proj = nn.Linear(input_dim, latent_dim)
@@ -92,13 +92,13 @@ class DayCentModel(nn.Module):
         harvest_mask = batch["harvest_mask"]# (B, 365)
         prev_somsc = batch["prev_somsc_state"].unsqueeze(-1)  # (B, 1)
 
-        state_latent = self.state_proj(prev_somsc)  # (B, latent)
+        # state_latent = self.state_proj(prev_somsc)  # (B, latent)
 
         # ---- daily representation ----
         daily_latent = self.daily_proj(seq)  # (B, 365, latent)
         
         # ---- global representation (init+year) ----
-        global_latent = self.init_proj(torch.cat([init_cond, year_enc, state_latent], dim=-1))  # (B, latent)
+        global_latent = self.init_proj(torch.cat([init_cond, year_enc], dim=-1))  # (B, latent)
 
         global_latent = global_latent.unsqueeze(1).repeat(1, seq.size(1), 1)      # (B, 365, latent)
 
@@ -110,8 +110,6 @@ class DayCentModel(nn.Module):
         somsc_preds = []
         somsc_attns = []
         ranges = month_day_ranges()
-
-        current_val = prev_somsc.squeeze(-1) # (B, )
 
         for m, (start, end) in enumerate(ranges):
             # Create mask: can see days [start, end)

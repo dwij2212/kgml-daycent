@@ -1,0 +1,105 @@
+experiment_id: v2.0
+description: "Yield Modelling with datasetv2"
+
+data:
+  base_dir: /projects/standard/kumarv/shared/daycent/new_data
+  use_synthetic: true
+  max_workers: 4
+  legacy_dir_structure: false # keep false to use the new data
+  experiment_number: 2
+  
+  # Train split configuration
+  train:
+    # Scenarios: can use explicit list or range
+    scenario_range:
+      start: 1
+      end: 10 # Will use scenarios 1-10
+    
+    points: ['796991', '797141', '797901', '798121', '798145', '798216', '798249', '798260', '798268', '798310', '798330', '799080', '799292', '799322', '799880', '800042', '800043', '800073', '800217', '800352', '800597', '801145', '801196', '801270', '801338', '802180', '802287', '802494', '802594', '802631', '802830', '802877', '802905', '803402', '803801', '803885', '804364', '804713', '805161', '805502', '805616', '805673', '805728', '806224', '806262', '806285', '806636', '806647', '807081', '807288', '807323', '807335', '807628', '808002', '808048', '808223', '808300', '808484', '808527', '808651', '808823', '809080', '809240', '809698', '809826', '809832', '847598', '847675', '847711', '847719', '847736', '847752', '847828', '847864', '847876', '847932', '847977', '847983', '848008', '848031', '848038', '848064']
+    # Years: can use explicit list or range
+    year_range:
+      start: 2002
+      end: 2020  # Will use years 2002-2020
+
+  # Validation split configuration
+  val:
+    scenario_range:
+      start: 1
+      end: 10
+
+    points: ['796991', '797141', '797901', '798121', '798145', '798216', '798249', '798260', '798268', '798310', '798330', '799080', '799292', '799322', '799880', '800042', '800043', '800073', '800217', '800352', '800597', '801145', '801196', '801270', '801338', '802180', '802287', '802494', '802594', '802631', '802830', '802877', '802905', '803402', '803801', '803885', '804364', '804713', '805161', '805502', '805616', '805673', '805728', '806224', '806262', '806285', '806636', '806647', '807081', '807288', '807323', '807335', '807628', '808002', '808048', '808223', '808300', '808484', '808527', '808651', '808823', '809080', '809240', '809698', '809826', '809832', '847598', '847675', '847711', '847719', '847736', '847752', '847828', '847864', '847876', '847932', '847977', '847983', '848008', '848031', '848038', '848064']
+    year_range:
+      start: 2015
+      end: 2020
+  
+  # Test split configuration
+  test:
+    # Example with explicit scenario list
+    scenarios:
+      - 11
+      - 12
+      - 13
+
+    points: ['848070', '848139', '848160', '848174', '848182', '848202', '848221', '848222', '848263', '848277', '848281', '848326', '848340', '848357', '848358', '848362', '848369', '848377']
+    year_range:
+      start: 2015
+      end: 2024
+
+model:
+  # model_type: daycent        # Options: 'daycent' or 'transformer'
+  # # For daycent (LSTM) model:
+  # hidden_dim: 64
+  # latent_dim: 32
+  # lstm_layers: 1
+  # dropout: 0.1
+  model_type: daycent
+  hidden_dim: 64
+  latent_dim: 32
+  lstm_layers: 1
+  dropout: 0.1
+  # # For transformer model (uncomment if using model_type: transformer):
+  # d_model: 128
+  # nhead: 4
+  # num_layers: 2
+  # dim_feedforward: 256
+
+training:
+  batch_size: 512
+  epochs: 300
+  device: cuda:2
+  
+  somsc_loss_weight: 0.5
+  yield_loss_weight: 1.0
+  grad_clip_norm: 5.0
+  
+  # Optimizer configuration
+  optimizer:
+    name: adam
+    lr: 0.001
+    weight_decay: 0.01
+  
+  # Scheduler configuration
+  # scheduler:
+  #   name: warmup_cosine
+  #   warmup_ratio: 0.1
+  #   min_lr_ratio: 0.01
+
+  scheduler:
+    name: reduce_on_plateau
+    patience: 10
+    factor: 0.5
+
+  
+  random_seed: 42
+  num_workers: 2
+
+wandb:
+  enabled: false  # Disable for quick tests
+  project: daycent
+  name: "experiment15/somsc_yield_focus"
+  notes: "Focusing on SOMSC and Yield modeling, 2nd test run, dynamic loss weighting."
+  tags:
+    - test
+    - datasetv2
+    - debug
+

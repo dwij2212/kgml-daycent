@@ -58,8 +58,40 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, config,
     """
     model.train()
     total_loss = 0.0
+    flag = False
     
     for batch in tqdm(train_loader, desc="Training", leave=False):
+        if flag:
+            print("\n--- DEBUG: BATCH NORMALIZATION CHECK ---")
+            
+            # 1. Check Input Sequence (Batch, Time, Feat)
+            seq = batch['sequence']
+            print(f"Sequence Shape: {seq.shape}")
+            print(f"  > Entire Seq  | Mean: {seq.mean().item():.3f} | Std: {seq.std().item():.3f} | Min: {seq.min().item():.3f} | Max: {seq.max().item():.3f}")
+            
+            # Check specific columns (assuming col 0 is Raw DOY, col 1-3 are Weather)
+            print(f"  > Col 0 (DOY) | Mean: {seq[:,:,0].mean().item():.3f} | Max: {seq[:,:,0].max().item():.3f} (If > 1.0, huge scale mismatch with sin/cos!)")
+            print(f"  > Col 1 (Tmax)| Mean: {seq[:,:,1].mean().item():.3f} | Min: {seq[:,:,1].std().item():.3f} | Max: {seq[:,:,1].max().item():.3f}")
+            print(f"  > Col 2 (Tmin)| Mean: {seq[:,:,2].mean().item():.3f} | Min: {seq[:,:,2].std().item():.3f} | Max: {seq[:,:,2].max().item():.3f}")
+            print(f"  > Col 3 (Precip)| Mean: {seq[:,:,3].mean().item():.3f} | Min: {seq[:,:,3].std().item():.3f} | Max: {seq[:,:,3].max().item():.3f}")
+
+            # 2. Check Targets (Yield)
+            y = batch['yield']
+            print(f"Yield Shape:    {y.shape}")
+            print(f"  > Yield Stats | Mean: {y.mean().item():.3f} | Std: {y.std().item():.3f} | Min: {y.min().item():.3f} | Max: {y.max().item():.3f}")
+            if y.max().item() > 100:
+                print("  ⚠️  WARNING: Yield values are very large. Loss gradients may explode.")
+
+            # 3. Check Targets (SOMSC)
+            som = batch['somsc']
+            mask = batch['somsc_mask']
+            valid_som = som[mask == 1] # Only check valid values
+            if valid_som.numel() > 0:
+                print(f"SOMSC Stats     | Mean: {valid_som.mean().item():.3f} | Std: {valid_som.std().item():.3f} | Max: {valid_som.max().item():.3f}")
+            
+            print("-" * 40)
+            flag = False
+
         batch = move_batch_to_device(batch, device)
         
         optimizer.zero_grad()
@@ -79,7 +111,7 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, config,
         loss.backward()
         
         # Gradient clipping
-        grad_clipper(model.parameters())
+        # grad_clipper(model.parameters())
         
         optimizer.step()
         
@@ -139,8 +171,14 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     
     # Calculate total training steps
     steps_per_epoch = len(train_loader)
-    total_steps = steps_per_epoch * config.training.epochs
-    
+
+    # stepscheduler per batch depends on the scheduler type
+    step_scheduler_per_batch = config.training.scheduler['name'] in ['warmup_cosine', 'warmup_linear']
+    if step_scheduler_per_batch:
+        total_steps = steps_per_epoch * config.training.epochs
+    else:
+        total_steps = config.training.epochs  # For epoch-based schedulers
+
     # Build optimizer and scheduler using factories
     optimizer, scheduler = create_optimizer_and_scheduler(
         params=params,
@@ -173,11 +211,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     for epoch in range(config.training.epochs):
         # Train
 
-        # stepscheduler per batch depends on the scheduler type
-        if scheduler:
-            step_scheduler_per_batch = config.training.scheduler['name'] in ['warmup_cosine', 'warmup_linear']
-        else:
-            step_scheduler_per_batch = False
+        
         
         train_loss = train_epoch(
             model=model,
@@ -194,7 +228,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
         # Validate
         if val_loader:
             val_somsc_loss, val_yield_loss = evaluate(model, val_loader, device)
-            val_total_loss = val_somsc_loss + val_yield_loss
+            val_total_loss = config.training.somsc_loss_weight * val_somsc_loss + config.training.yield_loss_weight * val_yield_loss
         else:
             val_somsc_loss = val_yield_loss = val_total_loss = 0.0
         

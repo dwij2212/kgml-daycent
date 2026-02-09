@@ -468,9 +468,9 @@ def main():
                         help='Which split to evaluate (default: test)')
     parser.add_argument('--num-samples', type=int, default=5,
                         help='Number of sample scenarios to plot (default: 5)')
-    parser.add_argument('--no-csv', action='store_true',
-                        help='Skip saving predictions to CSV')
-    
+    parser.add_argument('--save-csv', action='store_true',
+                        help='Save predictions to CSV')
+
     args = parser.parse_args()
     
     if not os.path.exists(args.config):
@@ -480,7 +480,7 @@ def main():
     config = ExperimentConfig.from_yaml(args.config)
     
     evaluate_experiment(config, split=args.split, num_samples=args.num_samples, 
-                        save_csv=not args.no_csv)
+                        save_csv=args.save_csv)
 
 
 if __name__ == "__main__":

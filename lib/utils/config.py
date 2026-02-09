@@ -92,6 +92,7 @@ class DataConfig:
     points_lookup: str = field(init=False)
     init_cond_file: str = field(init=False)
     scenarios_file: str = field(init=False)
+    experiment_number: int = 1
     
     # Legacy fields (kept for backward compatibility)
     scenario_ids: Optional[List[str]] = None
@@ -125,7 +126,7 @@ class DataConfig:
             self.weather_dir = os.path.join(self.input_dir, "Weather")
             self.points_lookup = os.path.join(self.input_dir, "Midwest_lookupTable.xlsx")
             self.init_cond_file = os.path.join(self.input_dir, "initial_site_conditions.xlsx")
-            self.scenarios_file = os.path.join(self.input_dir, "consolidated_management_scenarios.csv")
+            self.scenarios_file = os.path.join(self.input_dir, f"consolidated_management_scenarios_experiment_{self.experiment_number}.csv")
         
         self.scenario_ids = self.get_all_scenario_ids()
     
