@@ -367,7 +367,7 @@ def evaluate_experiment(config, split='test', num_samples=5, save_csv=True):
     print(f"{'='*80}\n")
     
     print("Step 1: Preparing data...")
-    prepared_data = prepare_data_for_datasetv2(config)
+    prepared_data = prepare_data_for_datasetv2(config, test_only=(split=='test'))
     
     print(f"\nStep 2: Loading {split} dataset...")
     
@@ -450,7 +450,7 @@ def evaluate_experiment(config, split='test', num_samples=5, save_csv=True):
     plots_dir = os.path.join(config.plots_dir, split)
     generate_sample_plots(predictions, plots_dir, 
                          num_scenarios=num_samples, 
-                         num_points_per_scenario=1)
+                         num_points_per_scenario=3)
     
     print(f"\n{'='*80}")
     print("EVALUATION COMPLETE!")

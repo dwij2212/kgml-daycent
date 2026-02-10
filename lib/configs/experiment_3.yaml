@@ -68,7 +68,7 @@ training:
   epochs: 300
   device: cuda:2
   
-  somsc_loss_weight: 0.5
+  somsc_loss_weight: 0
   yield_loss_weight: 1.0
   grad_clip_norm: 5.0
   

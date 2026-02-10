@@ -273,7 +273,10 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
     train_Y = output_df[train_mask].copy()
     test_Y = output_df[~train_mask].copy()
     
-    train_Y[['somsc', 'cgrain']] = scaler_Y.transform(train_Y[['somsc', 'cgrain']])
+    try:
+        train_Y[['somsc', 'cgrain']] = scaler_Y.transform(train_Y[['somsc', 'cgrain']])
+    except ValueError:
+        print("Running test mode so training norm is not required.")
     test_Y[['somsc', 'cgrain']] = scaler_Y.transform(test_Y[['somsc', 'cgrain']])
     
     output_normalized = pd.concat([train_Y, test_Y], ignore_index=True)
@@ -281,7 +284,7 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
     
     return output_normalized, scaler_Y
 
-def prepare_data_for_datasetv2(config):
+def prepare_data_for_datasetv2(config, test_only=False):
     """
     Prepare data for DayCentDatasetV2 (returns DataFrames, doesn't save to disk).
     
@@ -312,6 +315,11 @@ def prepare_data_for_datasetv2(config):
     # Get all scenario IDs needed
     all_scenario_ids = config.data.get_all_scenario_ids()
     print(f"Loading {len(all_scenario_ids)} unique scenarios...")
+
+    if test_only:
+        print("Test-only mode: loading only test scenarios")
+        all_scenario_ids = config.data.test.get_scenario_ids()
+        print(f"  Test scenarios: {len(all_scenario_ids)}")
     
     # Load weather data
     print("\n1. Loading weather data...")
