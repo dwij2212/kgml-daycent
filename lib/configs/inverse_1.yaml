@@ -1,0 +1,57 @@
+experiment_id: inverse_1
+description: "DayCent inverse modelling - learn latent point representations"
+
+data:
+  # Pre-processed data, not normalised (from data_prep_inv_modelling.ipynb)
+  driver_response_path: /projects/standard/kumarv/shared/daycent/new_data/inverse/merged_weather_response_1.csv
+  management_path: /projects/standard/kumarv/shared/daycent/new_data/inverse/management_scenario_1.csv
+  init_cond_path: /projects/standard/kumarv/shared/daycent/new_data/inputs/initial_site_conditions.xlsx
+
+  # Scenarios (shared across all splits)
+  scenario_range:
+    start: 1
+    end: 30
+
+  # ---------- Point split ----------
+  # Reads unique point_ids from the driver-response CSV and splits by percentage.
+  # Set source to 'csv' (reads driver_response_path) or 'management'.
+  # max_points (optional): subsample this many points before splitting.
+  points:
+    source: csv
+    train_ratio: 0.30
+    val_ratio: 0.35
+    test_ratio: 0.35
+
+  # Year ranges per split
+  train_year_range:
+    start: 2002
+    end: 2018
+  val_year_range:
+    start: 2002
+    end: 2023
+  test_year_range:
+    start: 2002
+    end: 2023
+
+training:
+  batch_size: 512
+  epochs: 200
+  device: cuda:0
+
+  architecture: ATT_NL   # ATT_NL | LAST
+  code_dim: 32
+  num_layers: 1
+  dropout: 0.0
+  learning_rate: 0.003
+  temperature: 1.0
+
+  # Loss weights
+  recon_weight: 1.0
+  static_weight: 1
+  contrastive_weight: 1
+
+  grad_clip_norm: 5.0
+  random_seed: 42
+  num_workers: 2
+
+output_dir: /users/6/mehta423/daycent/output/inverse_1
