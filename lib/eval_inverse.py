@@ -17,7 +17,7 @@ import argparse
 import os
 import sys
 import random
-
+import math
 import numpy as np
 import pandas as pd
 import torch
@@ -37,6 +37,16 @@ from model.inverse import InverseModel
 from utils.training import setup_reproducibility, get_device
 from utils.inverse_config import InverseExperimentConfig
 
+IMPORTANT_STATIC_FEATURES = [
+    "elev",
+    "slclay",
+    "slfldc",
+    "slph",
+    "slsand",
+    "slwltp",
+    "sitlat",
+    "som2ci"
+]
 
 # ======================================================================
 # Collect predictions
@@ -109,36 +119,62 @@ def compute_reconstruction_metrics(inputs, recons, feature_names=None):
 
 
 def compute_static_metrics(targets, preds, feature_names=None):
-    """Per-feature MSE, R2, and Correlation for static site conditions."""
+    """
+    Computes metrics ONLY for features that match IMPORTANT_STATIC_FEATURES.
+    Returns filtered results and the indices of important features.
+    """
     n_feats = targets.shape[1]
     results = []
+    important_indices = []
+
     print(f"\n{'='*60}")
-    print(f"STATIC SITE-CONDITION PREDICTION")
+    print(f"STATIC SITE-CONDITION PREDICTION (Important Features Only)")
     print(f"{'='*60}")
-    print(f"  {'Feature':>30s}  {'MSE':>10s}  {'R2':>10s}  {'Corr':>10s}")
+    print(f"  {'Feature':>20s}  {'MSE':>10s}  {'R2':>10s}  {'Corr':>10s}")
+
     for f in range(n_feats):
+        name = feature_names[f] if feature_names is not None else str(f)
+        name_lower = name.lower()
+
+        # --- EARLY FILTERING ---
+        # Check if this feature starts with any of the important prefixes
+        is_important = any(name_lower.startswith(prefix) for prefix in IMPORTANT_STATIC_FEATURES)
+        
+        if not is_important:
+            continue
+
+        # Keep track of the index for plotting later
+        important_indices.append(f)
+
+        # Compute metrics
         mse = mean_squared_error(targets[:, f], preds[:, f])
         r2 = r2_score(targets[:, f], preds[:, f])
         
-        # Calculate correlation (handle Nan if variance is 0)
         c_mat = np.corrcoef(targets[:, f], preds[:, f])
-        if np.isnan(c_mat).any():
-            corr = 0.0
-        else:
-            corr = c_mat[0, 1]
+        corr = 0.0 if np.isnan(c_mat).any() else c_mat[0, 1]
         
-        name = feature_names[f] if feature_names is not None else str(f)
-        results.append({"feature": f, "feature_name": name, "mse": mse, "r2": r2, "corr": corr})
-        print(f"  {name:>30s}  {mse:10.6f}  {r2:10.4f}  {corr:10.4f}")
+        results.append({
+            "feature_idx": f,
+            "feature_name": name,
+            "mse": mse,
+            "r2": r2,
+            "corr": corr
+        })
+        print(f"  {name:>20s}  {mse:10.6f}  {r2:10.4f}  {corr:10.4f}")
 
-    overall_mse = mean_squared_error(targets, preds)
-    # Macro-average R2 and Correlation
+    if not results:
+        print("  No important features found!")
+        return results, 0, 0, 0, []
+
+    # Compute averages using ONLY the filtered results
+    avg_mse = np.mean([r["mse"] for r in results])
     avg_r2 = np.mean([r["r2"] for r in results])
     avg_corr = np.mean([r["corr"] for r in results])
-    print(f"\n  Overall MSE: {overall_mse:.6f}  |  Mean R2: {avg_r2:.4f}  |  Mean Corr: {avg_corr:.4f}")
-    return results, overall_mse, avg_r2, avg_corr
 
-
+    print(f"{'-'*60}")
+    print(f"  AVG (Important)     {avg_mse:10.6f}  {avg_r2:10.4f}  {avg_corr:10.4f}")
+    
+    return results, avg_mse, avg_r2, avg_corr, important_indices
 
 
 # ======================================================================
@@ -220,82 +256,169 @@ def plot_reconstruction_samples(inputs, recons, metadata, feature_names,
 def plot_static_metrics(results, output_dir):
     """
     Plot R2 scores for static metrics.
-    1. Histogram/Line plot of all R2 scores.
-    2. Top 20 and Bottom 20 features by R2 in a single plot.
+    Only plots IMPORTANT_STATIC_FEATURES (prefix-based).
     """
+
     print(f"\nPlotting static metrics (R2) ...")
 
-    # helper to unpack
+    # Unpack
     features = [str(r["feature_name"]) for r in results]
     r2_scores = [r["r2"] for r in results]
-    
+
+    # -------------------------------------------------------------
+    # Filter by IMPORTANT_STATIC_FEATURES (prefix match, lowercase)
+    # -------------------------------------------------------------
+    important_features = []
+    important_r2 = []
+
+    for feat, r2 in zip(features, r2_scores):
+        feat_lower = feat.lower()
+        if any(feat_lower.startswith(prefix) for prefix in IMPORTANT_STATIC_FEATURES):
+            important_features.append(feat)
+            important_r2.append(r2)
+
+    if len(important_features) == 0:
+        print("  No important features found. Skipping static R2 plot.")
+        return
+
+    print(f"  Found {len(important_features)} important features. Plotting only these.")
+
+    # Convert to numpy for sorting
+    important_features = np.array(important_features)
+    important_r2 = np.array(important_r2)
+
+    # -------------------------------------------------------------
     # Sort by R2
-    sorted_indices = np.argsort(r2_scores)
-    sorted_features = np.array(features)[sorted_indices]
-    sorted_r2 = np.array(r2_scores)[sorted_indices]
-    
-    # 1. Bar plot of all (if reasonable number) or distribution
-    plt.figure(figsize=(12, 8))
-    if len(results) <= 50:
-         plt.barh(np.arange(len(results)), sorted_r2)
-         plt.yticks(np.arange(len(results)), sorted_features, fontsize=6)
-    else:
-         plt.plot(sorted_r2, marker='.')
-         plt.xlabel("Feature Rank")
-    
-    plt.title("Static Condition R2 Scores (All Features)")
-    plt.xlabel("R2 Score")
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "static_r2_all.png"), dpi=150)
-    plt.close()
+    # -------------------------------------------------------------
+    sorted_indices = np.argsort(important_r2)
+    sorted_features = important_features[sorted_indices]
+    sorted_r2 = important_r2[sorted_indices]
 
-    # 2. Top 20 and Lowest 20
-    n_top = 20
-    if len(results) < 2 * n_top:
-        # Just plot all of them
-        plot_features = sorted_features
-        plot_r2 = sorted_r2
-        title_suffix = "(All)"
-    else:
-        # Lowest 20 (first 20 of sorted)
-        # Top 20 (last 20 of sorted)
-        lowest_indices = np.arange(n_top)
-        highest_indices = np.arange(len(results) - n_top, len(results))
-        
-        select_indices = np.concatenate([lowest_indices, highest_indices])
-        
-        plot_features = sorted_features[select_indices]
-        plot_r2 = sorted_r2[select_indices]
-        title_suffix = "(Bottom 20 & Top 20)"
-        
-    plt.figure(figsize=(12, 12))
-    # Horizontal bar plot
-    y_pos = np.arange(len(plot_features))
-    
-    # Color coding: red for low, blue for high
-    # We can normalize color map based on value
-    norm = plt.Normalize(vmin=min(plot_r2), vmax=max(plot_r2))
+    # -------------------------------------------------------------
+    # Plot
+    # -------------------------------------------------------------
+    plt.figure(figsize=(10, max(6, 0.4 * len(sorted_features))))
+
+    y_pos = np.arange(len(sorted_features))
+
+    norm = plt.Normalize(vmin=min(sorted_r2), vmax=max(sorted_r2))
     cmap = plt.cm.RdYlBu
-    colors = cmap(norm(plot_r2))
-    
-    bars = plt.barh(y_pos, plot_r2, align='center', color=colors)
-    plt.yticks(y_pos, plot_features, fontsize=9)
-    plt.xlabel('R2 Score')
-    plt.title(f'Static Condition R2 Scores {title_suffix}')
-    plt.grid(axis='x', linestyle='--', alpha=0.7)
-    
+    colors = cmap(norm(sorted_r2))
+
+    plt.barh(y_pos, sorted_r2, color=colors)
+    plt.yticks(y_pos, sorted_features, fontsize=9)
+    plt.xlabel("R2 Score")
+    plt.title("Static Condition R2 Scores (Important Features Only)")
+    plt.grid(axis="x", linestyle="--", alpha=0.6)
+
     # Add value labels
-    for i, v in enumerate(plot_r2):
-        plt.text(v, i, f" {v:.2f}", va='center', fontsize=8)
+    for i, v in enumerate(sorted_r2):
+        plt.text(v, i, f" {v:.2f}", va="center", fontsize=8)
 
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "static_r2_top_bottom.png"), dpi=150)
+    plt.savefig(os.path.join(output_dir, "static_r2_important_only.png"), dpi=150)
     plt.close()
+
+    print(f"  Saved static R2 plot to {output_dir}/static_r2_important_only.png")
+
+def plot_static_correlation_bar(results, output_dir):
+    """Bar chart of Correlation scores for important features."""
+    if not results:
+        return
+
+    # Sort by Correlation
+    sorted_results = sorted(results, key=lambda x: x["corr"])
+    names = [r["feature_name"] for r in sorted_results]
+    corrs = [r["corr"] for r in sorted_results]
+
+    plt.figure(figsize=(10, max(6, len(names) * 0.3)))
+    y_pos = np.arange(len(names))
     
-    print(f"  Saved static R2 plots to {output_dir}")
+    # Color bars by value
+    norm = plt.Normalize(vmin=min(corrs), vmax=max(corrs))
+    cmap = plt.cm.RdYlBu
+    colors = cmap(norm(corrs))
+
+    plt.barh(y_pos, corrs, color=colors)
+    plt.yticks(y_pos, names, fontsize=9)
+    plt.xlabel("Correlation Coefficient")
+    plt.title("Prediction Correlation (Important Features Only)")
+    plt.grid(axis='x', linestyle='--', alpha=0.5)
+
+    # Add value labels
+    for i, v in enumerate(corrs):
+        plt.text(v, i, f" {v:.2f}", va='center', fontsize=8, fontweight='bold')
+
+    plt.tight_layout()
+    path = os.path.join(output_dir, "static_correlation_bar.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  Saved correlation bar chart to {path}")
 
 
+def plot_static_scatter(results, targets, preds, output_dir):
+    """
+    Grid of scatter plots (True vs Predicted) for important features.
+    Draws the x=y line for reference.
+    """
+    if not results:
+        return
+    
+    # sort results by correlation for better visualisation
+    results = sorted(results, key=lambda x: x["corr"], reverse=True)
+    results = results[:9]
+    
+    n_plots = len(results)
+    cols = 3
+    rows = math.ceil(n_plots / cols)
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
+    axes = axes.flatten()  # Flatten to make indexing easy
 
+    print(f"  Plotting scatter plots for {n_plots} features...")
+    
+
+    for i, res in enumerate(results):
+        ax = axes[i]
+        f_idx = res["feature_idx"]
+        name = res["feature_name"]
+        
+        # Get raw data
+        y_true = targets[:, f_idx]
+        y_pred = preds[:, f_idx]
+        
+        # Determine axis limits to make the plot square and cover all points
+        d_min = min(y_true.min(), y_pred.min())
+        d_max = max(y_true.max(), y_pred.max())
+        # Add slight padding
+        span = d_max - d_min
+        d_min -= span * 0.05
+        d_max += span * 0.05
+
+        # Scatter plot
+        ax.scatter(y_true, y_pred, alpha=0.5, s=10, c='steelblue', edgecolors='none')
+        
+        # x = y line
+        ax.plot([d_min, d_max], [d_min, d_max], 'k--', lw=1.5, label="Perfect Fit")
+        
+        ax.set_title(f"{name}\nCorr: {res['corr']:.2f} | R2: {res['r2']:.2f}", fontsize=10)
+        ax.set_xlabel("True")
+        ax.set_ylabel("Predicted")
+        
+        # Force square aspect ratio
+        ax.set_aspect('equal', adjustable='box')
+        ax.set_xlim(d_min, d_max)
+        ax.set_ylim(d_min, d_max)
+
+    # Hide unused subplots
+    for j in range(i + 1, len(axes)):
+        axes[j].axis('off')
+
+    plt.tight_layout()
+    path = os.path.join(output_dir, "static_scatter_plots.png")
+    plt.savefig(path, dpi=150)
+    plt.close()
+    print(f"  Saved scatter plots to {path}")
 # ======================================================================
 # Main
 # ======================================================================
@@ -390,11 +513,24 @@ def evaluate(config: InverseExperimentConfig, num_vis: int = 5):
     recon_mse, overall_recon = compute_reconstruction_metrics(
         results["inputs"], results["reconstructions"], feature_names
     )
-    static_results, static_mse, static_r2, static_corr = compute_static_metrics(
-        results["static_targets"], results["static_preds"], feature_names=static_feature_names
+    
+    # Compute metrics (and get filtered results + indices)
+    static_results, static_mse, static_r2, static_corr, imp_indices = compute_static_metrics(
+        results["static_targets"], 
+        results["static_preds"], 
+        feature_names=static_feature_names
     )
 
-    plot_static_metrics(static_results, eval_dir)
+    # Plot Bar Chart
+    plot_static_correlation_bar(static_results, eval_dir)
+
+    # Plot Scatter Plots (Pass full targets/preds; function uses indices inside static_results)
+    plot_static_scatter(
+        static_results, 
+        results["static_targets"], 
+        results["static_preds"], 
+        eval_dir
+    )
 
     print(f"\n{'='*60}")
     print("Evaluation complete!")

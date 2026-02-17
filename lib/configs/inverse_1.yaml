@@ -9,8 +9,8 @@ data:
 
   # Scenarios (shared across all splits)
   scenario_range:
-    start: 1
-    end: 30
+    start: 3
+    end: 3
 
   # ---------- Point split ----------
   # Reads unique point_ids from the driver-response CSV and splits by percentage.
@@ -18,20 +18,20 @@ data:
   # max_points (optional): subsample this many points before splitting.
   points:
     source: csv
-    train_ratio: 0.30
-    val_ratio: 0.35
-    test_ratio: 0.35
+    train_ratio: 0.80
+    val_ratio: 0.1
+    test_ratio: 0.1
 
   # Year ranges per split
   train_year_range:
     start: 2002
-    end: 2018
+    end: 2024
   val_year_range:
-    start: 2002
-    end: 2023
+    start: 2015
+    end: 2024
   test_year_range:
-    start: 2002
-    end: 2023
+    start: 2020
+    end: 2024
 
 training:
   batch_size: 512
@@ -48,7 +48,7 @@ training:
   # Loss weights
   recon_weight: 1.0
   static_weight: 1
-  contrastive_weight: 1
+  contrastive_weight: 0.1
 
   grad_clip_norm: 5.0
   random_seed: 42
