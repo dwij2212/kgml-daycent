@@ -1,4 +1,5 @@
 output/
+logs/
 /data/
 wandb/
 plots/

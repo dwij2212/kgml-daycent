@@ -219,7 +219,8 @@ class TrainingConfig:
     batch_size: int = 2048
     epochs: int = 100
     device: str = "cuda:0"
-    
+    patience: int = 25  # For early stopping
+
     # Loss weights
     somsc_loss_weight: float = 1.0
     yield_loss_weight: float = 1.0

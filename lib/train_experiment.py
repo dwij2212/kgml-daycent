@@ -207,12 +207,12 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
     # Step 7: Training loop
     print(f"Step 7: Training for {config.training.epochs} epochs...")
     print(f"{'='*80}\n")
+
+    counter = 0
         
     for epoch in range(config.training.epochs):
         # Train
 
-        
-        
         train_loss = train_epoch(
             model=model,
             train_loader=train_loader,
@@ -253,7 +253,10 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
                 }
             )
             if saved:
+                counter = 0
                 print(f"  ✓ Saved best model (val_yield_loss: {val_yield_loss:.4f})")
+            else:
+                counter += 1
 
         # Log to W&B
         log_dict = {
@@ -268,6 +271,10 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False):
                 "val_total_loss": val_total_loss,
             })
         wandb_logger.log(log_dict)
+
+        if counter >= config.training.patience:
+            print(f"Early stopping triggered after {counter} epochs without improvement.")
+            break
     
     # Step 8: Final evaluation on test set
     if test_loader:
