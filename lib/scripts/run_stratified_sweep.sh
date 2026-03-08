@@ -29,10 +29,10 @@ conda activate wstatt
 
 EXTRA_ARGS="$@"
 
-python run_selection_experiment.py \
+python run_ensemble_experiment.py \
     --base-config configs/selection_base.yaml \
     --strategy stratified \
-    --n-points 25 50 100 150 200 300 400 \
+    --n-points 25 50 100 150 200 250 300 350 400 \
     --seed 42 \
     --feature-groups spatial elevation climate soil \
     $EXTRA_ARGS

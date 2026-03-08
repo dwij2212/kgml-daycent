@@ -285,22 +285,30 @@ class ExperimentConfig:
     """Complete experiment configuration."""
     experiment_id: str
     description: str = ""
-    
+
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     training: TrainingConfig = field(default_factory=TrainingConfig)
     wandb: WandbConfig = field(default_factory=WandbConfig)
-    
+
+    # Optional override: if set, all ensemble members sharing the same
+    # training data will reuse one preprocessed cache instead of each
+    # member creating its own under data/{experiment_id}.
+    shared_processed_dir: str | None = field(default=None)
+
     # Paths (auto-generated)
     processed_dir: str = field(init=False)
     output_dir: str = field(init=False)
     plots_dir: str = field(init=False)
-    
+
     def __post_init__(self):
-        self.processed_dir = f"/users/6/mehta423/daycent/data/{self.experiment_id}"
+        if self.shared_processed_dir:
+            self.processed_dir = self.shared_processed_dir
+        else:
+            self.processed_dir = f"/users/6/mehta423/daycent/data/{self.experiment_id}"
         self.output_dir = f"/users/6/mehta423/daycent/output/{self.experiment_id}"
         self.plots_dir = os.path.join(self.output_dir, "plots")
-        
+
         # Create directories if they don't exist
         os.makedirs(self.processed_dir, exist_ok=True)
         os.makedirs(self.output_dir, exist_ok=True)

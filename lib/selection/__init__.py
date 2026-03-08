@@ -1,24 +1,39 @@
 """
-Point selection strategies for data-efficient DayCent emulation.
+Point selection strategies and active acquisition functions for data-efficient
+DayCent emulation.
 
-This module provides a framework for experimenting with different spatial
-point selection strategies. Each strategy takes a pool of candidate points
-and selects a subset for training, aiming to maximise model generalisability
-with minimal data.
-
-Usage:
+One-shot strategies
+-------------------
     from selection import get_strategy
 
     strategy = get_strategy("random", n_points=50, seed=42)
     selected = strategy.select(pool_points, metadata)
+
+Active acquisition functions (for iterative active loops)
+----------------------------------------------------------
+    from selection import get_acquisition
+
+    acq = get_acquisition("random", seed=42)
+    scores = acq.score(model_path, candidate_points, current_train, metadata)
+    next_batch = acq.select_top(scores, n=25)
 """
 
 from .base import BaseStrategy, SelectionResult
 from .random_strategy import RandomStrategy
 from .stratified_strategy import StratifiedStrategy
 from .registry import STRATEGY_REGISTRY, get_strategy, register_strategy
+from .acquisition import (
+    BaseAcquisition,
+    ACQUISITION_REGISTRY,
+    get_acquisition,
+    register_acquisition,
+    RandomAcquisition,
+    UncertaintyAcquisition,
+    DiversityAcquisition,
+)
 
 __all__ = [
+    # One-shot strategies
     "BaseStrategy",
     "SelectionResult",
     "RandomStrategy",
@@ -26,4 +41,12 @@ __all__ = [
     "STRATEGY_REGISTRY",
     "get_strategy",
     "register_strategy",
+    # Active acquisition
+    "BaseAcquisition",
+    "ACQUISITION_REGISTRY",
+    "get_acquisition",
+    "register_acquisition",
+    "RandomAcquisition",
+    "UncertaintyAcquisition",
+    "DiversityAcquisition",
 ]

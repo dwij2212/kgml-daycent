@@ -30,7 +30,7 @@ conda activate wstatt
 
 EXTRA_ARGS="$@"
 
-python run_selection_experiment.py \
+python run_ensemble_experiment.py \
     --base-config configs/selection_base.yaml \
     --strategy random \
     --n-points 25 50 100 150 200 250 300 350 400 \
@@ -38,7 +38,7 @@ python run_selection_experiment.py \
     $EXTRA_ARGS
 
 
-python run_selection_experiment.py \
+python run_ensemble_experiment.py \
     --base-config configs/selection_base.yaml \
     --strategy stratified \
     --n-points 25 50 100 150 200 250 300 350 400 \
