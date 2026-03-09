@@ -9,4 +9,4 @@ EXPT_NUM=$1
 
 rm -rf ../output/v2.0/plots/
 
-python eval_experiment.py --config "configs/experiment_${EXPT_NUM}.yaml"
+python eval_emulator.py --config "configs/emulator/experiment_${EXPT_NUM}.yaml"

@@ -18,15 +18,15 @@ Then retrieve it with get_acquisition("my_strategy").
 
 Available acquisitions
 ----------------------
-- "random"  : Random scores (baseline / placeholder for testing the loop).
+- "random"           : Random scores (baseline / placeholder for testing the loop).
 
 Future acquisitions (not yet implemented)
 ------------------------------------------
-- "uncertainty" : MC Dropout predictive variance — run N forward passes with
-                  dropout active; score = mean variance over yield + SOMSC.
-- "diversity"   : Farthest-first traversal in model latent space — score by
-                  distance to nearest current training point in embedding space.
-- "hybrid"      : Weighted sum of normalised uncertainty + diversity scores.
+- "mc_dropout"       : MCDropoutAcquisition — run N stochastic forward passes with
+                       dropout active; score = mean predictive variance over yield + SOMSC.
+- "latent_diversity" : LatentDiversityAcquisition — farthest-first traversal in model
+                       latent space; score = distance to nearest current training point.
+- "hybrid"           : Weighted sum of normalised mc_dropout + latent_diversity scores.
 """
 import random
 from abc import ABC, abstractmethod
@@ -143,14 +143,14 @@ class RandomAcquisition(BaseAcquisition):
 #  Future stubs (not yet implemented — raise NotImplementedError)
 # =========================================================================== #
 
-@register_acquisition("uncertainty")
-class UncertaintyAcquisition(BaseAcquisition):
+@register_acquisition("mc_dropout")
+class MCDropoutAcquisition(BaseAcquisition):
     """MC Dropout uncertainty acquisition (not yet implemented).
 
     Planned behaviour
     -----------------
     1. Load model from *model_path* and enable training mode (dropout active).
-    2. Run *n_mc_passes* forward passes for each candidate point.
+    2. Run *n_mc_passes* stochastic forward passes for each candidate point.
     3. Compute predictive variance over yield and SOMSC across passes.
     4. Return mean variance as the acquisition score.
 
@@ -175,19 +175,21 @@ class UncertaintyAcquisition(BaseAcquisition):
         **kwargs,
     ) -> Dict[str, float]:
         raise NotImplementedError(
-            "UncertaintyAcquisition is not yet implemented. "
+            "MCDropoutAcquisition is not yet implemented. "
             "Use --acquisition random for testing the active loop."
         )
 
 
-@register_acquisition("diversity")
-class DiversityAcquisition(BaseAcquisition):
+@register_acquisition("latent_diversity")
+class LatentDiversityAcquisition(BaseAcquisition):
     """Farthest-first diversity acquisition in model latent space (not yet implemented).
 
     Planned behaviour
     -----------------
-    1. Extract latent embeddings for all candidate + current_train points.
-    2. For each candidate, compute distance to its nearest current_train neighbour.
+    1. Extract latent embeddings for all candidate + current_train points
+       using the encoder of the trained model at *model_path*.
+    2. For each candidate, compute the distance to its nearest current_train
+       neighbour in the embedding space.
     3. Return that distance as the acquisition score (farthest = most diverse).
 
     Parameters
@@ -205,6 +207,6 @@ class DiversityAcquisition(BaseAcquisition):
         **kwargs,
     ) -> Dict[str, float]:
         raise NotImplementedError(
-            "DiversityAcquisition is not yet implemented. "
+            "LatentDiversityAcquisition is not yet implemented. "
             "Use --acquisition random for testing the active loop."
         )

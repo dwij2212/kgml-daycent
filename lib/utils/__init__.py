@@ -2,8 +2,39 @@
 Utilities package for DayCent experiments.
 """
 from .eval import evaluate
-from .sampler import ScenarioWiseSampler
-from .config import ExperimentConfig
+from .config import (
+    # Emulator / selection configs
+    SplitConfig,
+    DataConfig,
+    ModelConfig,
+    TrainingConfig,
+    WandbConfig,
+    ExperimentConfig,
+    # Inverse modelling configs
+    InverseDataConfig,
+    InverseTrainingConfig,
+    InverseExperimentConfig,
+)
+
+# Shared evaluation metrics
+from .metrics import (
+    compute_regression_metrics,
+    compute_masked_metrics,
+    compute_per_channel_metrics,
+    compute_emulator_metrics,
+)
+
+# Shared plotting utilities
+from .plotting import (
+    plot_timeseries,
+    plot_dual_timeseries,
+    plot_scatter,
+    plot_scatter_grid,
+    plot_bar_h,
+    plot_budget_curve,
+    plot_distribution_comparison,
+    plot_spatial_points,
+)
 
 # Optimizer and scheduler factories
 from .optim import (

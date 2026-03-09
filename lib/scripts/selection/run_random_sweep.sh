@@ -2,9 +2,9 @@
 
 #!/bin/bash -l
 #SBATCH --account=kumarv
-#SBATCH --job-name=stratified_sweep
-#SBATCH --output=logs/stratified_sweep_%j.out
-#SBATCH --error=logs/stratified_sweep_%j.err
+#SBATCH --job-name=random_sweep
+#SBATCH --output=logs/random_sweep_%j.out
+#SBATCH --error=logs/random_sweep_%j.err
 #SBATCH --time=2:00:00
 #SBATCH --partition=kgml03
 #SBATCH --gres=gpu:a100:1
@@ -14,12 +14,13 @@
 #SBATCH --mail-user=mehta423@umn.edu
 
 # ============================================================
-# Run a budget sweep with the stratified strategy.
+# Run a budget sweep with the random strategy.
 #
 # Usage:
-#   bash scripts/run_stratified_sweep.sh
-#   bash scripts/run_stratified_sweep.sh --feature-groups spatial soil som
+#   bash scripts/run_random_sweep.sh
+#   bash scripts/run_random_sweep.sh --skip-train  # eval only
 # ============================================================
+
 
 cd /users/6/mehta423/daycent/lib
 
@@ -30,9 +31,9 @@ conda activate wstatt
 EXTRA_ARGS="$@"
 
 python run_ensemble_experiment.py \
-    --base-config configs/selection_base.yaml \
-    --strategy stratified \
+    --base-config configs/selection/selection_base.yaml \
+    --strategy random \
     --n-points 25 50 100 150 200 250 300 350 400 \
     --seed 42 \
-    --feature-groups spatial elevation climate soil \
     $EXTRA_ARGS
+

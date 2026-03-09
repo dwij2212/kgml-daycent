@@ -1,9 +1,9 @@
 """
-Main training script for DayCent experiments.
+Main training script for DayCent emulator experiments.
 
 Usage:
-    python train_experiment.py --config configs/experiment.yaml
-    python train_experiment.py --config configs/experiment.yaml --skip-data-prep
+    python train_emulator.py --config configs/emulator/experiment_1.yaml
+    python train_emulator.py --config configs/emulator/experiment_1.yaml --skip-data-prep
 
 This script uses modular components from the utils package:
 - Model building via model registry

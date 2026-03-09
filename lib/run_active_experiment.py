@@ -56,8 +56,8 @@ from run_selection_experiment import (
     load_metadata,
     build_experiment_config,
 )
-from train_experiment import train
-from eval_experiment import evaluate_experiment
+from train_emulator import train
+from eval_emulator import evaluate_experiment
 
 
 # =========================================================================== #

@@ -1,9 +1,9 @@
 """
-Evaluation script for DayCent experiments.
+Evaluation script for DayCent emulator experiments.
 
 Usage:
-    python eval_experiment.py --config configs/experiment.yaml --split test
-    python eval_experiment.py --config configs/experiment.yaml --split all --num-samples 5
+    python eval_emulator.py --config configs/emulator/experiment_1.yaml --split test
+    python eval_emulator.py --config configs/emulator/experiment_1.yaml --split all --num-samples 5
 """
 import argparse
 import os
@@ -14,14 +14,18 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 import joblib
 
 from utils.config import ExperimentConfig
 from data.preprocessing import prepare_data_for_datasetv2
 from data.loader import create_dataset
 from model import build_model
-from utils import get_device, move_batch_to_device
+from utils import (
+    get_device,
+    move_batch_to_device,
+    compute_emulator_metrics,
+    plot_dual_timeseries,
+)
 
 
 def collect_predictions(model, loader, device):
@@ -108,63 +112,8 @@ def inverse_transform_predictions(predictions, scaler_path):
 
 
 def calculate_metrics(predictions):
-    """Calculate evaluation metrics for predictions."""
-    # Convert mask to boolean - handle both 0/1 masks and boolean masks
-    yield_mask = predictions['yield_mask']
-    valid_yield = yield_mask.astype(bool) if yield_mask.dtype != bool else yield_mask
-    
-    yield_pred_flat = predictions['yield_pred'].flatten()
-    yield_true_flat = predictions['yield_true'].flatten()
-    valid_yield_flat = valid_yield.flatten()
-    
-    yield_pred = yield_pred_flat[valid_yield_flat]
-    yield_true = yield_true_flat[valid_yield_flat]
-    
-    if len(yield_pred) == 0:
-        print("WARNING: No valid yield samples found!")
-        yield_mse = yield_rmse = yield_mae = yield_r2 = 0
-    else:
-        yield_mse = np.mean((yield_pred - yield_true)**2)
-        yield_rmse = np.sqrt(yield_mse)
-        yield_mae = np.mean(np.abs(yield_pred - yield_true))
-        
-        ss_res = np.sum((yield_true - yield_pred)**2)
-        ss_tot = np.sum((yield_true - np.mean(yield_true))**2)
-        yield_r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-    
-    # Handle SOMSC mask similarly
-    somsc_mask = predictions['somsc_mask']
-    valid_somsc = somsc_mask.astype(bool) if somsc_mask.dtype != bool else somsc_mask
-    
-    somsc_pred_flat = predictions['somsc_pred'].flatten()
-    somsc_true_flat = predictions['somsc_true'].flatten()
-    valid_somsc_flat = valid_somsc.flatten()
-    
-    somsc_pred = somsc_pred_flat[valid_somsc_flat]
-    somsc_true = somsc_true_flat[valid_somsc_flat]
-    
-    if len(somsc_pred) == 0:
-        print("WARNING: No valid SOMSC samples found!")
-        somsc_mse = somsc_rmse = somsc_mae = somsc_r2 = 0
-    else:
-        somsc_mse = np.mean((somsc_pred - somsc_true)**2)
-        somsc_rmse = np.sqrt(somsc_mse)
-        somsc_mae = np.mean(np.abs(somsc_pred - somsc_true))
-        
-        ss_res = np.sum((somsc_true - somsc_pred)**2)
-        ss_tot = np.sum((somsc_true - np.mean(somsc_true))**2)
-        somsc_r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-    
-    return {
-        'yield': {
-            'mse': yield_mse, 'rmse': yield_rmse, 'mae': yield_mae,
-            'r2': yield_r2, 'n_samples': len(yield_pred)
-        },
-        'somsc': {
-            'mse': somsc_mse, 'rmse': somsc_rmse, 'mae': somsc_mae,
-            'r2': somsc_r2, 'n_samples': len(somsc_pred)
-        }
-    }
+    """Calculate evaluation metrics — delegates to utils.metrics."""
+    return compute_emulator_metrics(predictions)
 
 
 def print_metrics(metrics, split_name):
@@ -202,90 +151,47 @@ def create_metadata_index(predictions):
 
 
 def plot_predictions(scenario_id, pid, sample_indices, predictions, plots_dir):
-    """Plot yield and SOMSC predictions for a specific scenario-point combination."""
+    """Plot yield and SOMSC predictions for a scenario-point pair via utils.plotting."""
     yield_pred = predictions['yield_pred'][sample_indices]
     yield_true = predictions['yield_true'][sample_indices]
     yield_mask = predictions['yield_mask'][sample_indices]
-    
+
     somsc_pred = predictions['somsc_pred'][sample_indices]
     somsc_true = predictions['somsc_true'][sample_indices]
     somsc_mask = predictions['somsc_mask'][sample_indices]
-    
-    # Use boolean mask for filtering yield
-    yield_mask_bool = yield_mask.astype(bool).flatten() if yield_mask.dtype != bool else yield_mask.flatten()
-    yield_pred_flat = yield_pred.flatten()
-    yield_true_flat = yield_true.flatten()
-    
-    # Get valid yield values
-    valid_yield_pred = yield_pred_flat[yield_mask_bool]
-    valid_yield_true = yield_true_flat[yield_mask_bool]
-    
-    # Use boolean mask for filtering SOMSC
-    somsc_mask_bool = somsc_mask.astype(bool).flatten() if somsc_mask.dtype != bool else somsc_mask.flatten()
-    somsc_pred_flat = somsc_pred.flatten()
-    somsc_true_flat = somsc_true.flatten()
-    
-    somsc_pred_clean = somsc_pred_flat[somsc_mask_bool]
-    somsc_true_clean = somsc_true_flat[somsc_mask_bool]
-    
-    # Calculate metrics for yield
-    if len(valid_yield_pred) > 1:
-        yield_mse = np.mean((valid_yield_pred - valid_yield_true)**2)
-        ss_res = np.sum((valid_yield_true - valid_yield_pred)**2)
-        ss_tot = np.sum((valid_yield_true - np.mean(valid_yield_true))**2)
-        yield_r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-    else:
-        yield_mse = np.mean((valid_yield_pred - valid_yield_true)**2) if len(valid_yield_pred) > 0 else 0
-        yield_r2 = 0
-    
-    # Calculate metrics for SOMSC
-    if len(somsc_pred_clean) > 1:
-        somsc_mse = np.mean((somsc_pred_clean - somsc_true_clean)**2)
-        ss_res = np.sum((somsc_true_clean - somsc_pred_clean)**2)
-        ss_tot = np.sum((somsc_true_clean - np.mean(somsc_true_clean))**2)
-        somsc_r2 = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0
-    else:
-        somsc_mse = np.mean((somsc_pred_clean - somsc_true_clean)**2) if len(somsc_pred_clean) > 0 else 0
-        somsc_r2 = 0
-    
-    fig = plt.figure(figsize=(16, 10))
-    gs = fig.add_gridspec(2, 1, hspace=0.3)
-    
-    ax1 = fig.add_subplot(gs[0, 0])
-    years = np.arange(len(valid_yield_pred))
-    ax1.plot(years, valid_yield_true, 'o-', label='True', linewidth=2, markersize=6, color='#2E86AB')
-    ax1.plot(years, valid_yield_pred, 's--', label='Predicted', linewidth=2, markersize=6, 
-             alpha=0.7, color='#A23B72')
-    ax1.set_title(f'Yield Over Time\nMSE: {yield_mse:.2f}, R2: {yield_r2:.3f}', 
-                  fontsize=12, fontweight='bold')
-    ax1.set_xlabel('Year Index', fontsize=11)
-    ax1.set_ylabel('Yield (kg/ha)', fontsize=11)
-    ax1.legend(fontsize=10)
-    ax1.grid(True, alpha=0.3)
-    
-    ax2 = fig.add_subplot(gs[1, 0])
-    months = np.arange(len(somsc_pred_clean))
-    ax2.plot(months, somsc_true_clean, '-', label='True', linewidth=1.5, 
-             alpha=0.8, color='#2E86AB')
-    ax2.plot(months, somsc_pred_clean, '--', label='Predicted', linewidth=1.5, 
-             alpha=0.8, color='#A23B72')
-    ax2.set_title(f'SOMSC Over Time\nMSE: {somsc_mse:.2f}, R2: {somsc_r2:.3f}', 
-                  fontsize=12, fontweight='bold')
-    ax2.set_xlabel('Month Index', fontsize=11)
-    ax2.set_ylabel('SOMSC (g C/m2)', fontsize=11)
-    ax2.legend(fontsize=10)
-    ax2.grid(True, alpha=0.3)
-    
-    fig.suptitle(f'Model Predictions - Scenario: {scenario_id}, Point: {pid}', 
-                 fontsize=14, fontweight='bold')
-    
+
+    # Filter by masks
+    ym = yield_mask.astype(bool).flatten()
+    sm = somsc_mask.astype(bool).flatten()
+    valid_yield_pred  = yield_pred.flatten()[ym]
+    valid_yield_true  = yield_true.flatten()[ym]
+    somsc_pred_clean  = somsc_pred.flatten()[sm]
+    somsc_true_clean  = somsc_true.flatten()[sm]
+
+    from utils.metrics import compute_regression_metrics
+    y_m = compute_regression_metrics(valid_yield_true, valid_yield_pred)
+    s_m = compute_regression_metrics(somsc_true_clean, somsc_pred_clean)
+
     scenario_dir = os.path.join(plots_dir, str(scenario_id))
     os.makedirs(scenario_dir, exist_ok=True)
-    save_path = os.path.join(scenario_dir, f'point_{pid}.png')
-    plt.savefig(save_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    
+    save_path = os.path.join(scenario_dir, f"point_{pid}.png")
+
+    plot_dual_timeseries(
+        series=[
+            (valid_yield_true,  valid_yield_pred,  "Yield"),
+            (somsc_true_clean,  somsc_pred_clean,  "SOMSC"),
+        ],
+        titles=[
+            f"Yield  MSE={y_m['mse']:.2f}  R²={y_m['r2']:.3f}",
+            f"SOMSC  MSE={s_m['mse']:.2f}  R²={s_m['r2']:.3f}",
+        ],
+        xlabels=["Year Index", "Month Index"],
+        ylabels=["Yield (kg/ha)", "SOMSC (g C/m²)"],
+        suptitle=f"Scenario {scenario_id}  ·  Point {pid}",
+        save_path=save_path,
+    )
     print(f"  Saved plot: {save_path}")
+
 
 
 def generate_sample_plots(predictions, plots_dir, num_scenarios=5, num_points_per_scenario=3):

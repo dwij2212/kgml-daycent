@@ -28,8 +28,8 @@ from .acquisition import (
     get_acquisition,
     register_acquisition,
     RandomAcquisition,
-    UncertaintyAcquisition,
-    DiversityAcquisition,
+    MCDropoutAcquisition,
+    LatentDiversityAcquisition,
 )
 
 __all__ = [
@@ -47,6 +47,6 @@ __all__ = [
     "get_acquisition",
     "register_acquisition",
     "RandomAcquisition",
-    "UncertaintyAcquisition",
-    "DiversityAcquisition",
+    "MCDropoutAcquisition",
+    "LatentDiversityAcquisition",
 ]

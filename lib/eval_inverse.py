@@ -22,7 +22,6 @@ import numpy as np
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader
-from sklearn.metrics import r2_score, mean_squared_error
 from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 import matplotlib
@@ -35,7 +34,9 @@ import yaml
 from data.inverse import DayCentInverseDataset, prepare_inverse_data
 from model.inverse import InverseModel
 from utils.training import setup_reproducibility, get_device
-from utils.inverse_config import InverseExperimentConfig
+from utils.config import InverseExperimentConfig
+from utils.metrics import compute_per_channel_metrics
+from utils.plotting import plot_bar_h, plot_scatter_grid
 
 IMPORTANT_STATIC_FEATURES = [
     "elev",
@@ -119,61 +120,41 @@ def compute_reconstruction_metrics(inputs, recons, feature_names=None):
 
 
 def compute_static_metrics(targets, preds, feature_names=None):
+    """Compute static site-condition metrics using utils.metrics.
+
+    Returns the same signature as before:
+        (results, avg_mse, avg_r2, avg_corr, important_indices)
+    where *results* is a list of per-feature dicts.
     """
-    Computes metrics ONLY for features that match IMPORTANT_STATIC_FEATURES.
-    Returns filtered results and the indices of important features.
-    """
-    n_feats = targets.shape[1]
-    results = []
-    important_indices = []
-
-    print(f"\n{'='*60}")
-    print(f"STATIC SITE-CONDITION PREDICTION (Important Features Only)")
-    print(f"{'='*60}")
-    print(f"  {'Feature':>20s}  {'MSE':>10s}  {'R2':>10s}  {'Corr':>10s}")
-
-    for f in range(n_feats):
-        name = feature_names[f] if feature_names is not None else str(f)
-        name_lower = name.lower()
-
-        # --- EARLY FILTERING ---
-        # Check if this feature starts with any of the important prefixes
-        is_important = any(name_lower.startswith(prefix) for prefix in IMPORTANT_STATIC_FEATURES)
-        
-        if not is_important:
-            continue
-
-        # Keep track of the index for plotting later
-        important_indices.append(f)
-
-        # Compute metrics
-        mse = mean_squared_error(targets[:, f], preds[:, f])
-        r2 = r2_score(targets[:, f], preds[:, f])
-        
-        c_mat = np.corrcoef(targets[:, f], preds[:, f])
-        corr = 0.0 if np.isnan(c_mat).any() else c_mat[0, 1]
-        
-        results.append({
-            "feature_idx": f,
-            "feature_name": name,
-            "mse": mse,
-            "r2": r2,
-            "corr": corr
-        })
-        print(f"  {name:>20s}  {mse:10.6f}  {r2:10.4f}  {corr:10.4f}")
+    results = compute_per_channel_metrics(
+        targets, preds,
+        channel_names=feature_names,
+        filter_names=IMPORTANT_STATIC_FEATURES,
+    )
 
     if not results:
         print("  No important features found!")
-        return results, 0, 0, 0, []
+        return [], 0, 0, 0, []
 
-    # Compute averages using ONLY the filtered results
-    avg_mse = np.mean([r["mse"] for r in results])
-    avg_r2 = np.mean([r["r2"] for r in results])
-    avg_corr = np.mean([r["corr"] for r in results])
+    important_indices = [r["channel_idx"] for r in results]
+    avg_mse  = float(np.mean([r["mse"]  for r in results]))
+    avg_r2   = float(np.mean([r["r2"]   for r in results]))
+    avg_corr = float(np.mean([r["corr"] for r in results]))
 
+    # Rename keys to match legacy callers (feature_idx / feature_name)
+    for r in results:
+        r.setdefault("feature_idx",  r["channel_idx"])
+        r.setdefault("feature_name", r["channel_name"])
+
+    print(f"\n{'='*60}")
+    print("STATIC SITE-CONDITION PREDICTION (Important Features Only)")
+    print(f"{'='*60}")
+    print(f"  {'Feature':>20s}  {'MSE':>10s}  {'R2':>10s}  {'Corr':>10s}")
+    for r in results:
+        print(f"  {r['feature_name']:>20s}  {r['mse']:10.6f}  {r['r2']:10.4f}  {r['corr']:10.4f}")
     print(f"{'-'*60}")
     print(f"  AVG (Important)     {avg_mse:10.6f}  {avg_r2:10.4f}  {avg_corr:10.4f}")
-    
+
     return results, avg_mse, avg_r2, avg_corr, important_indices
 
 
@@ -254,170 +235,45 @@ def plot_reconstruction_samples(inputs, recons, metadata, feature_names,
 
 
 def plot_static_metrics(results, output_dir):
-    """
-    Plot R2 scores for static metrics.
-    Only plots IMPORTANT_STATIC_FEATURES (prefix-based).
-    """
-
-    print(f"\nPlotting static metrics (R2) ...")
-
-    # Unpack
-    features = [str(r["feature_name"]) for r in results]
-    r2_scores = [r["r2"] for r in results]
-
-    # -------------------------------------------------------------
-    # Filter by IMPORTANT_STATIC_FEATURES (prefix match, lowercase)
-    # -------------------------------------------------------------
-    important_features = []
-    important_r2 = []
-
-    for feat, r2 in zip(features, r2_scores):
-        feat_lower = feat.lower()
-        if any(feat_lower.startswith(prefix) for prefix in IMPORTANT_STATIC_FEATURES):
-            important_features.append(feat)
-            important_r2.append(r2)
-
-    if len(important_features) == 0:
-        print("  No important features found. Skipping static R2 plot.")
-        return
-
-    print(f"  Found {len(important_features)} important features. Plotting only these.")
-
-    # Convert to numpy for sorting
-    important_features = np.array(important_features)
-    important_r2 = np.array(important_r2)
-
-    # -------------------------------------------------------------
-    # Sort by R2
-    # -------------------------------------------------------------
-    sorted_indices = np.argsort(important_r2)
-    sorted_features = important_features[sorted_indices]
-    sorted_r2 = important_r2[sorted_indices]
-
-    # -------------------------------------------------------------
-    # Plot
-    # -------------------------------------------------------------
-    plt.figure(figsize=(10, max(6, 0.4 * len(sorted_features))))
-
-    y_pos = np.arange(len(sorted_features))
-
-    norm = plt.Normalize(vmin=min(sorted_r2), vmax=max(sorted_r2))
-    cmap = plt.cm.RdYlBu
-    colors = cmap(norm(sorted_r2))
-
-    plt.barh(y_pos, sorted_r2, color=colors)
-    plt.yticks(y_pos, sorted_features, fontsize=9)
-    plt.xlabel("R2 Score")
-    plt.title("Static Condition R2 Scores (Important Features Only)")
-    plt.grid(axis="x", linestyle="--", alpha=0.6)
-
-    # Add value labels
-    for i, v in enumerate(sorted_r2):
-        plt.text(v, i, f" {v:.2f}", va="center", fontsize=8)
-
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, "static_r2_important_only.png"), dpi=150)
-    plt.close()
-
-    print(f"  Saved static R2 plot to {output_dir}/static_r2_important_only.png")
-
-def plot_static_correlation_bar(results, output_dir):
-    """Bar chart of Correlation scores for important features."""
+    """Bar chart of R² scores for important static features (delegates to utils.plotting)."""
     if not results:
         return
+    names  = [r["feature_name"] for r in results]
+    values = [r["r2"]           for r in results]
+    path   = os.path.join(output_dir, "static_r2_important_only.png")
+    plot_bar_h(names, values,
+               title="Static Condition R² Scores (Important Features Only)",
+               xlabel="R²", save_path=path)
+    print(f"  Saved static R² plot to {path}")
 
-    # Sort by Correlation
-    sorted_results = sorted(results, key=lambda x: x["corr"])
-    names = [r["feature_name"] for r in sorted_results]
-    corrs = [r["corr"] for r in sorted_results]
 
-    plt.figure(figsize=(10, max(6, len(names) * 0.3)))
-    y_pos = np.arange(len(names))
-    
-    # Color bars by value
-    norm = plt.Normalize(vmin=min(corrs), vmax=max(corrs))
-    cmap = plt.cm.RdYlBu
-    colors = cmap(norm(corrs))
-
-    plt.barh(y_pos, corrs, color=colors)
-    plt.yticks(y_pos, names, fontsize=9)
-    plt.xlabel("Correlation Coefficient")
-    plt.title("Prediction Correlation (Important Features Only)")
-    plt.grid(axis='x', linestyle='--', alpha=0.5)
-
-    # Add value labels
-    for i, v in enumerate(corrs):
-        plt.text(v, i, f" {v:.2f}", va='center', fontsize=8, fontweight='bold')
-
-    plt.tight_layout()
-    path = os.path.join(output_dir, "static_correlation_bar.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
+def plot_static_correlation_bar(results, output_dir):
+    """Bar chart of correlation for important features (delegates to utils.plotting)."""
+    if not results:
+        return
+    names  = [r["feature_name"] for r in results]
+    values = [r["corr"]         for r in results]
+    path   = os.path.join(output_dir, "static_correlation_bar.png")
+    plot_bar_h(names, values,
+               title="Prediction Correlation (Important Features Only)",
+               xlabel="Correlation Coefficient", save_path=path)
     print(f"  Saved correlation bar chart to {path}")
 
 
 def plot_static_scatter(results, targets, preds, output_dir):
-    """
-    Grid of scatter plots (True vs Predicted) for important features.
-    Draws the x=y line for reference.
-    """
+    """Grid of scatter plots for important features (delegates to utils.plotting)."""
     if not results:
         return
-    
-    # sort results by correlation for better visualisation
-    results = sorted(results, key=lambda x: x["corr"], reverse=True)
-    results = results[:9]
-    
-    n_plots = len(results)
-    cols = 3
-    rows = math.ceil(n_plots / cols)
-    
-    fig, axes = plt.subplots(rows, cols, figsize=(4 * cols, 4 * rows))
-    axes = axes.flatten()  # Flatten to make indexing easy
-
-    print(f"  Plotting scatter plots for {n_plots} features...")
-    
-
-    for i, res in enumerate(results):
-        ax = axes[i]
-        f_idx = res["feature_idx"]
-        name = res["feature_name"]
-        
-        # Get raw data
-        y_true = targets[:, f_idx]
-        y_pred = preds[:, f_idx]
-        
-        # Determine axis limits to make the plot square and cover all points
-        d_min = min(y_true.min(), y_pred.min())
-        d_max = max(y_true.max(), y_pred.max())
-        # Add slight padding
-        span = d_max - d_min
-        d_min -= span * 0.05
-        d_max += span * 0.05
-
-        # Scatter plot
-        ax.scatter(y_true, y_pred, alpha=0.5, s=10, c='steelblue', edgecolors='none')
-        
-        # x = y line
-        ax.plot([d_min, d_max], [d_min, d_max], 'k--', lw=1.5, label="Perfect Fit")
-        
-        ax.set_title(f"{name}\nCorr: {res['corr']:.2f} | R2: {res['r2']:.2f}", fontsize=10)
-        ax.set_xlabel("True")
-        ax.set_ylabel("Predicted")
-        
-        # Force square aspect ratio
-        ax.set_aspect('equal', adjustable='box')
-        ax.set_xlim(d_min, d_max)
-        ax.set_ylim(d_min, d_max)
-
-    # Hide unused subplots
-    for j in range(i + 1, len(axes)):
-        axes[j].axis('off')
-
-    plt.tight_layout()
     path = os.path.join(output_dir, "static_scatter_plots.png")
-    plt.savefig(path, dpi=150)
-    plt.close()
+    plot_scatter_grid(
+        channel_results=results,
+        true=targets,
+        pred=preds,
+        ncols=3,
+        max_plots=9,
+        title="Static Feature Scatter (True vs Predicted)",
+        save_path=path,
+    )
     print(f"  Saved scatter plots to {path}")
 # ======================================================================
 # Main

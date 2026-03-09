@@ -47,8 +47,8 @@ import yaml
 from utils.config import ExperimentConfig, SplitConfig
 from selection import get_strategy, SelectionResult
 from selection.visualize import plot_selected_points, plot_feature_coverage
-from train_experiment import train
-from eval_experiment import evaluate_experiment
+from train_emulator import train
+from eval_emulator import evaluate_experiment
 
 
 # =========================================================================== #
