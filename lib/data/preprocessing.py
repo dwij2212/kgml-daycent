@@ -38,33 +38,6 @@ def load_weather_data(weather_dir: str, all_point_ids: list=None) -> pd.DataFram
     return weather_df
 
 
-def split_by_quadrants(points_lookup_path: str, train_quadrants: list, test_quadrants: list):
-    """Split points into train/test based on geographic quadrants."""
-    df = pd.read_csv(points_lookup_path)
-    
-    # Calculate medians for splitting
-    median_x = df['POINT_X'].median()
-    median_y = df['POINT_Y'].median()
-    
-    # Create quadrants
-    df['quadrant'] = 'Q1'
-    df.loc[(df['POINT_X'] <= median_x) & (df['POINT_Y'] <= median_y), 'quadrant'] = 'Q1 (SW)'
-    df.loc[(df['POINT_X'] > median_x) & (df['POINT_Y'] <= median_y), 'quadrant'] = 'Q2 (SE)'
-    df.loc[(df['POINT_X'] <= median_x) & (df['POINT_Y'] > median_y), 'quadrant'] = 'Q3 (NW)'
-    df.loc[(df['POINT_X'] > median_x) & (df['POINT_Y'] > median_y), 'quadrant'] = 'Q4 (NE)'
-    
-    train_checker = df[df['quadrant'].isin(train_quadrants)]
-    test_checker = df[df['quadrant'].isin(test_quadrants)]
-    
-    print(f"Train ({', '.join(train_quadrants)}): {len(train_checker)} points")
-    print(f"Test ({', '.join(test_quadrants)}): {len(test_checker)} points")
-    
-    train_pids = train_checker['id'].astype(str).unique()
-    test_pids = test_checker['id'].astype(str).unique()
-    
-    return train_pids, test_pids
-
-
 def normalize_weather_data(weather_df: pd.DataFrame, train_pids: list):
     """
     Normalize weather data using StandardScaler fitted on training data.
@@ -195,36 +168,6 @@ def load_management_data(scenario_ids: list, scenarios_file: str, legacy_dir_str
     scenarios_df = scenarios_df[scenarios_df['scenario_id'].isin(scenario_ids)]
     
     return scenarios_df
-
-
-def load_data(scenario_ids: list, weather_df: pd.DataFrame, scenarios_file: str, 
-              output_dir: str, max_workers: int = None):
-    """Load and merge all data (management, weather, outputs)."""
-    print("Loading management data...")
-    management_df = load_management_data(scenario_ids, scenarios_file)
-
-    # Create grid of all combinations
-    scenarios = management_df["scenario"].unique()
-    years = weather_df["Year"].unique()
-    doys = weather_df["doy"].unique()
-
-    grid = pd.DataFrame(itertools.product(scenarios, years, doys),
-                        columns=["scenario", "Year", "doy"])
-
-    grid_weather = pd.merge(grid, weather_df, on=["Year","doy"], how="left")
-
-    X_daily = pd.merge(grid_weather, management_df, 
-                    on=["scenario","Year","doy"], 
-                    how="left")
-    X_daily.fillna(0, inplace=True)
-    X_daily = X_daily[X_daily['doy'] <= 365]
-    X_daily.sort_values(['scenario', 'point_id', 'Year', 'doy'], inplace=True)
-    X_daily.reset_index(drop=True, inplace=True)
-
-    print("Loading output data...")
-    Y = load_output_data(scenario_ids, output_dir, max_workers=max_workers)
-
-    return X_daily, Y
 
 
 def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_ids: list, 

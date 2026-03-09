@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 from data.inverse import DayCentInverseDataset, prepare_inverse_data
 from model.inverse import InverseModel, SimCLRLoss
 from utils.training import setup_reproducibility, get_device
-from utils.inverse_config import InverseExperimentConfig
+from utils.config import InverseExperimentConfig
 
 
 # ======================================================================
