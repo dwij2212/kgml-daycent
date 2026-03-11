@@ -102,6 +102,7 @@ class StratifiedStrategy(BaseStrategy):
     def select(
         self,
         pool_points: List[str],
+        selected_points: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SelectionResult:
         self._validate_n(pool_points)

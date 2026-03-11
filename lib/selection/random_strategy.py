@@ -17,7 +17,7 @@ class RandomStrategy(BaseStrategy):
     Parameters
     ----------
     n_points : int
-        Number of points to select.
+        Number of points to select from the remaining pool.
     seed : int
         Random seed for reproducibility.
     """
@@ -25,6 +25,7 @@ class RandomStrategy(BaseStrategy):
     def select(
         self,
         pool_points: List[str],
+        selected_points: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SelectionResult:
         self._validate_n(pool_points)

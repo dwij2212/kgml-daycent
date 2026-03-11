@@ -21,16 +21,8 @@ Active acquisition functions (for iterative active loops)
 from .base import BaseStrategy, SelectionResult
 from .random_strategy import RandomStrategy
 from .stratified_strategy import StratifiedStrategy
+from .embedding_strategy import MaxDistStrategy, LCMDStrategy
 from .registry import STRATEGY_REGISTRY, get_strategy, register_strategy
-from .acquisition import (
-    BaseAcquisition,
-    ACQUISITION_REGISTRY,
-    get_acquisition,
-    register_acquisition,
-    RandomAcquisition,
-    MCDropoutAcquisition,
-    LatentDiversityAcquisition,
-)
 
 __all__ = [
     # One-shot strategies
@@ -38,15 +30,9 @@ __all__ = [
     "SelectionResult",
     "RandomStrategy",
     "StratifiedStrategy",
+    "MaxDistStrategy",
+    "LCMDStrategy",
     "STRATEGY_REGISTRY",
     "get_strategy",
     "register_strategy",
-    # Active acquisition
-    "BaseAcquisition",
-    "ACQUISITION_REGISTRY",
-    "get_acquisition",
-    "register_acquisition",
-    "RandomAcquisition",
-    "MCDropoutAcquisition",
-    "LatentDiversityAcquisition",
 ]

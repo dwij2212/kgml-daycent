@@ -53,14 +53,18 @@ class BaseStrategy(ABC):
     """Abstract base class for all point selection strategies.
 
     Subclasses must implement ``select()``.  They receive:
-      * *pool_points* – the full list of candidate point IDs (strings).
+      * *pool_points* – the list of **remaining** candidate point IDs
+        (strings).  This shrinks at each selection step.
+      * *selected_points* – the list of point IDs already selected in
+        previous steps.  Strategies that are TP-aware (e.g. MaxDist,
+        LCMD) use this to initialise distances / cluster centres.
       * *metadata* – a dict with at least:
           - ``"lookup_df"`` (pd.DataFrame) from the Midwest lookup table
           - ``"init_cond_df"`` (pd.DataFrame) initial site conditions
         Strategies that don't need metadata can ignore it.
 
     Convention: every strategy is instantiated with ``n_points`` (how many
-    to pick) plus any strategy-specific kwargs.
+    to pick **in this step**) plus any strategy-specific kwargs.
     """
 
     name: str = "base"  # override in subclass
@@ -74,9 +78,21 @@ class BaseStrategy(ABC):
     def select(
         self,
         pool_points: List[str],
+        selected_points: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SelectionResult:
-        """Return a SelectionResult with ``n_points`` chosen from *pool_points*."""
+        """Return a SelectionResult with ``n_points`` chosen from *pool_points*.
+
+        Parameters
+        ----------
+        pool_points : list[str]
+            Remaining candidate point IDs (excludes already-selected).
+        selected_points : list[str] or None
+            Points already chosen in prior selection steps.  Strategies
+            that are TP-aware use these to seed distances / clusters.
+        metadata : dict or None
+            Auxiliary data (lookup tables, embeddings, etc.).
+        """
         ...
 
     def _validate_n(self, pool_points: List[str]) -> None:

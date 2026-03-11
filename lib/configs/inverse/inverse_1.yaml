@@ -34,21 +34,21 @@ data:
     end: 2024
 
 training:
-  batch_size: 512
-  epochs: 200
+  batch_size: 256
+  epochs: 500
   device: cuda:0
 
   architecture: ATT_NL   # ATT_NL | LAST
   code_dim: 32
   num_layers: 1
-  dropout: 0.0
+  dropout: 0.25
   learning_rate: 0.003
   temperature: 1.0
 
   # Loss weights
-  recon_weight: 1.0
+  recon_weight: 1
   static_weight: 1
-  contrastive_weight: 0.1
+  contrastive_weight: 1
 
   grad_clip_norm: 5.0
   random_seed: 42
