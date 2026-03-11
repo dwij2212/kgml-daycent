@@ -1,32 +1,34 @@
 """
-Run an ensemble of models for a point-selection experiment.
+Run an ensemble of models for an incremental point-selection experiment.
 
-For each (strategy, n_points, selection_seed) configuration:
-  1. Select training points ONCE using the chosen strategy.
+For each incremental step:
+  1. Select ``step_size`` new training points (without replacement) using
+     the chosen strategy, appending to the cumulative training set.
   2. Train N models with different training seeds (sequential, single GPU).
   3. Average metrics across ensemble members and report mean ± std.
 
-The ensemble summary is backward-compatible with compare_selection_runs.py
-(top-level ``metrics`` field uses mean values).
+The selection is done ONCE (shared across ensemble members) and grows
+incrementally.  The ensemble summary at each cumulative budget is
+backward-compatible with compare_selection_runs.py.
 
 Usage examples
 --------------
-  # Ensemble of 5 random-selection runs at multiple budgets
+  # Ensemble of 5 with random strategy, growing by 50 each step up to 200
   python run_ensemble_experiment.py \\
       --base-config configs/selection_base.yaml \\
-      --strategy random --n-points 50 100 200 \\
+      --strategy random --step-size 50 --max-points 200 \\
       --seed 42 \\
       --ensemble-seeds 42 123 456 789 1024 \\
       --experiment-name exp5_default
 
-  # Stratified with spatial+soil features
+  # LCMD ensemble growing by 25 each step up to 150
   python run_ensemble_experiment.py \\
       --base-config configs/selection_base.yaml \\
-      --strategy stratified --n-points 100 \\
+      --strategy lcmd --step-size 25 --max-points 150 \\
       --seed 42 \\
+      --embedding-path /users/6/mehta423/daycent/output/inverse_1/eval \\
       --ensemble-seeds 42 123 456 789 1024 \\
-      --feature-groups spatial soil elevation \\
-      --experiment-name exp5_default
+      --experiment-name exp5_lcmd
 """
 import argparse
 import copy
@@ -125,31 +127,32 @@ def save_ensemble_summary(
 def run_ensemble(
     base_dict: dict,
     strategy_name: str,
-    n_points: int,
+    cumulative_selected: List[str],
+    step_result: SelectionResult,
     selection_seed: int,
     ensemble_seeds: List[int],
     metadata: Dict[str, Any],
     experiment_name: str = "default",
-    feature_groups: List[str] | None = None,
     skip_train: bool = False,
     skip_plots: bool = False,
 ) -> Dict[str, Any]:
-    """Run ensemble for one (strategy, n_points, selection_seed) configuration.
+    """Run ensemble for one cumulative budget checkpoint.
+
+    Parameters
+    ----------
+    cumulative_selected : list[str]
+        The full cumulative training set (all points selected so far).
+    step_result : SelectionResult
+        The SelectionResult for the *cumulative* selection (for saving).
 
     Returns a summary dict with aggregated metrics.
     """
     t0 = time.time()
-    pool_points = [str(p) for p in base_dict["data"]["pool_points"]]
+    n_points = len(cumulative_selected)
+    full_pool = [str(p) for p in base_dict["data"]["pool_points"]]
 
-    # 1. Select training points ONCE
-    strategy_kwargs = dict(n_points=n_points, seed=selection_seed)
-    if feature_groups and strategy_name == "stratified":
-        strategy_kwargs["feature_groups"] = feature_groups
-
-    strategy = get_strategy(strategy_name, **strategy_kwargs)
-    result = strategy.select(pool_points, metadata=metadata)
-    print(f"\n[Ensemble] Selected {result.n_points} pts via '{strategy_name}' "
-          f"(n={n_points}, ss={selection_seed})")
+    print(f"\n[Ensemble] Training on {n_points} cumulative pts via '{strategy_name}' "
+          f"(ss={selection_seed})")
 
     # Budget-level directory (shared across all members)
     budget_tag = f"{experiment_name}/{strategy_name}/n{n_points}_ss{selection_seed}"
@@ -159,22 +162,22 @@ def run_ensemble(
     os.makedirs(budget_dir, exist_ok=True)
 
     # Save selection result at budget level (shared)
-    result.save(os.path.join(budget_dir, "selection_result.json"))
+    step_result.save(os.path.join(budget_dir, "selection_result.json"))
 
     # Plots at budget level (only once, not per member)
     if not skip_plots:
         test_points = [str(p) for p in base_dict["data"]["test"]["points"]]
         plot_selected_points(
-            result=result,
+            result=step_result,
             test_points=test_points,
-            pool_points=pool_points,
+            pool_points=full_pool,
             lookup_df=metadata["lookup_df"],
             save_path=os.path.join(budget_dir, "selection_map.png"),
         )
         plt.close("all")
         plot_feature_coverage(
-            result=result,
-            pool_points=pool_points,
+            result=step_result,
+            pool_points=full_pool,
             init_cond_df=metadata["init_cond_df"],
             save_path=os.path.join(budget_dir, "feature_coverage.png"),
         )
@@ -185,7 +188,7 @@ def run_ensemble(
         "/users/6/mehta423/daycent/data/selection", budget_tag
     )
 
-    # 2. Train each ensemble member sequentially
+    # Train each ensemble member sequentially
     all_metrics: List[Dict[str, Any]] = []
     member_run_tags: List[str] = []
 
@@ -198,20 +201,20 @@ def run_ensemble(
 
         out = train_eval_single(
             base_dict=base_dict,
-            selected_points=result.selected_points,
+            selected_points=cumulative_selected,
             run_tag=member_tag,
-            result=result,
+            result=step_result,
             train_seed=train_seed,
             shared_processed_dir=shared_processed_dir,
             skip_train=skip_train,
             skip_plots=True,   # plots already saved at budget level
-            pool_points=pool_points,
+            pool_points=full_pool,
             metadata=None,     # skip per-member plots
         )
         all_metrics.append(out["metrics"])
         member_run_tags.append(member_tag)
 
-    # 3. Aggregate and save ensemble summary
+    # Aggregate and save ensemble summary
     elapsed = time.time() - t0
     save_ensemble_summary(
         budget_dir=budget_dir,
@@ -219,7 +222,7 @@ def run_ensemble(
         strategy_name=strategy_name,
         n_points=n_points,
         selection_seed=selection_seed,
-        result=result,
+        result=step_result,
         all_metrics=all_metrics,
         member_run_tags=member_run_tags,
         elapsed_s=elapsed,
@@ -248,26 +251,94 @@ def run_ensemble(
 # =========================================================================== #
 
 def run_ensemble_sweep(args) -> None:
-    """Run ensembles for all requested budget sizes."""
+    """Run incremental ensemble selection + training across a budget curve.
+
+    At each step ``step_size`` new points are selected (without replacement)
+    from the remaining pool, appended to the cumulative training set, and an
+    ensemble of models is trained + evaluated.  Continues until the cumulative
+    budget reaches ``max_points`` or the pool is exhausted.
+    """
     base_dict = load_base_config(args.base_config)
     resolve_point_lists(base_dict, os.path.dirname(os.path.abspath(args.base_config)))
     metadata = load_metadata(base_dict)
 
+    step_size = args.step_size
+
+    # Full pool and incremental state
+    full_pool = [str(p) for p in base_dict["data"]["pool_points"]]
+    remaining_pool = list(full_pool)
+    selected_so_far: List[str] = []
+
+    max_points = args.max_points if args.max_points else len(full_pool)
+
     all_rows = []
-    for n in args.n_points:
+    step_num = 0
+    while len(selected_so_far) < max_points and remaining_pool:
+        n_this_step = min(step_size, max_points - len(selected_so_far), len(remaining_pool))
+        if n_this_step <= 0:
+            break
+        step_num += 1
+        cumulative_n = len(selected_so_far) + n_this_step
+
+        print(f"\n{'='*80}")
+        print(f"  INCREMENTAL STEP {step_num}: selecting {n_this_step} new points")
+        print(f"  Cumulative budget will be {cumulative_n}")
+        print(f"  Remaining pool: {len(remaining_pool)} | Already selected: {len(selected_so_far)}")
+        print(f"{'='*80}")
+
+        # --- Selection (shared across all ensemble members) ---
+        strategy_kwargs = dict(n_points=n_this_step, seed=args.seed)
+        if args.feature_groups and args.strategy == "stratified":
+            strategy_kwargs["feature_groups"] = args.feature_groups
+        if args.strategy in ("maxdist", "lcmd"):
+            if args.embedding_path:
+                strategy_kwargs["embedding_path"] = args.embedding_path
+            strategy_kwargs["n_warm"] = args.n_warm
+
+        strategy = get_strategy(args.strategy, **strategy_kwargs)
+        step_result = strategy.select(
+            remaining_pool,
+            selected_points=selected_so_far,
+            metadata=metadata,
+        )
+        newly_selected = step_result.selected_points
+        print(f"Newly selected {len(newly_selected)} points via '{step_result.strategy_name}'")
+
+        # Cumulative training set
+        cumulative_selected = selected_so_far + newly_selected
+
+        # Build cumulative SelectionResult for saving / plotting
+        cumulative_result = SelectionResult(
+            selected_points=sorted(cumulative_selected),
+            strategy_name=step_result.strategy_name,
+            strategy_params=step_result.strategy_params,
+            metadata={
+                **step_result.metadata,
+                "step_newly_selected": newly_selected,
+                "step_n_points": n_this_step,
+                "cumulative_n_points": cumulative_n,
+            },
+        )
+
+        # --- Ensemble training at this budget checkpoint ---
         row = run_ensemble(
             base_dict=base_dict,
             strategy_name=args.strategy,
-            n_points=n,
+            cumulative_selected=cumulative_selected,
+            step_result=cumulative_result,
             selection_seed=args.seed,
             ensemble_seeds=args.ensemble_seeds,
             metadata=metadata,
             experiment_name=args.experiment_name,
-            feature_groups=args.feature_groups,
             skip_train=args.skip_train,
             skip_plots=args.skip_plots,
         )
         all_rows.append(row)
+
+        # Update incremental state
+        newly_set = set(newly_selected)
+        selected_so_far.extend(newly_selected)
+        remaining_pool = [p for p in remaining_pool if p not in newly_set]
 
     # Save aggregated CSV for the sweep
     sweep_dir = os.path.join(
@@ -285,7 +356,7 @@ def run_ensemble_sweep(args) -> None:
     print(df.to_string(index=False))
 
     # Budget curve plot (mean ± std)
-    if len(args.n_points) > 1:
+    if len(all_rows) > 1:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
         ns = df["n_points"].values
 
@@ -296,7 +367,7 @@ def run_ensemble_sweep(args) -> None:
             df["yield_r2_mean"] + df["yield_r2_std"],
             alpha=0.25, color="dodgerblue",
         )
-        axes[0].set_xlabel("# Training Points")
+        axes[0].set_xlabel("# Training Points (cumulative)")
         axes[0].set_ylabel("Yield R²")
         axes[0].set_title(f"Yield R² vs Budget ({args.strategy}, {len(args.ensemble_seeds)} members)")
         axes[0].grid(True, alpha=0.3)
@@ -308,7 +379,7 @@ def run_ensemble_sweep(args) -> None:
             df["somsc_r2_mean"] + df["somsc_r2_std"],
             alpha=0.25, color="coral",
         )
-        axes[1].set_xlabel("# Training Points")
+        axes[1].set_xlabel("# Training Points (cumulative)")
         axes[1].set_ylabel("SOMSC R²")
         axes[1].set_title(f"SOMSC R² vs Budget ({args.strategy}, {len(args.ensemble_seeds)} members)")
         axes[1].grid(True, alpha=0.3)
@@ -329,9 +400,17 @@ def main():
     parser.add_argument("--base-config", type=str, required=True)
     parser.add_argument(
         "--strategy", type=str, required=True,
-        choices=["random", "stratified"],
+        choices=["random", "stratified", "maxdist", "lcmd"],
     )
-    parser.add_argument("--n-points", type=int, nargs="+", required=True)
+    parser.add_argument(
+        "--step-size", type=int, required=True,
+        help="Number of NEW points to select per incremental step.",
+    )
+    parser.add_argument(
+        "--max-points", type=int, default=None,
+        help="Stop when cumulative budget reaches this size "
+             "(default: full pool).",
+    )
     parser.add_argument(
         "--seed", type=int, default=42,
         help="Selection strategy seed (controls WHICH points are chosen).",
@@ -348,6 +427,16 @@ def main():
     parser.add_argument(
         "--feature-groups", type=str, nargs="*", default=None,
         help="Feature groups for stratified strategy.",
+    )
+    parser.add_argument(
+        "--embedding-path", type=str, default=None,
+        help="Path to directory with avg_codes.npy / avg_codes_pids.npy "
+             "(required for maxdist / lcmd strategies).",
+    )
+    parser.add_argument(
+        "--n-warm", type=int, default=1,
+        help="Number of random warm-start points for maxdist / lcmd "
+             "(default: 1).",
     )
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-plots", action="store_true")

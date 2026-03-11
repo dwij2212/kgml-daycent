@@ -3,29 +3,33 @@ Run a point-selection experiment.
 
 This script:
   1. Loads a base experiment config (with all points, fixed test set).
-  2. Applies a selection strategy to choose *n* training points.
-  3. Overrides the config's train split with the selected points.
-  4. Trains the model (reusing the existing training pipeline).
-  5. Evaluates on the fixed test set.
-  6. Saves metrics, selection metadata, and visualisations.
+  2. Applies a selection strategy **incrementally** to grow the training
+     set by ``step_size`` points at each step (sampling without replacement).
+  3. At each budget checkpoint, trains and evaluates a model.
+  4. Saves metrics, selection metadata, and visualisations per step.
+
+The incremental loop maintains a *remaining pool* and a *selected-so-far*
+list.  At every step the strategy receives only the remaining pool and the
+already-selected points, ensuring no point is ever chosen twice.
 
 Usage examples
 --------------
-  # Random selection of 50 training points
+  # Random: grow by 50 each step up to 200 total → train at 50,100,150,200
   python run_selection_experiment.py \\
       --base-config configs/selection_base.yaml \\
-      --strategy random --n-points 50 --seed 42
+      --strategy random --step-size 50 --max-points 200 --seed 42
 
-  # Stratified selection using spatial + soil features
+  # Stratified: single step of 100
   python run_selection_experiment.py \\
       --base-config configs/selection_base.yaml \\
-      --strategy stratified --n-points 100 --seed 42 \\
+      --strategy stratified --step-size 100 --seed 42 \\
       --feature-groups spatial soil elevation
 
-  # Sweep over multiple budget sizes
+  # LCMD: grow by 25 each step up to 150
   python run_selection_experiment.py \\
       --base-config configs/selection_base.yaml \\
-      --strategy random --n-points 25 50 100 200 400 --seed 42
+      --strategy lcmd --step-size 25 --max-points 150 --seed 42 \\
+      --embedding-path /users/6/mehta423/daycent/output/inverse_1/eval
 """
 import argparse
 import copy
@@ -300,7 +304,7 @@ def train_eval_single(
 
     # Evaluate on test set
     print("\n--- EVALUATION ---")
-    eval_out = evaluate_experiment(config, split="test", num_samples=3, save_csv=True)
+    eval_out = evaluate_experiment(config, split=" ", num_samples=3, save_csv=True)
     metrics = eval_out["metrics"]
 
     elapsed = time.time() - t0
@@ -323,75 +327,158 @@ def run_single(
     n_points: int,
     seed: int,
     metadata: Dict[str, Any],
+    selected_points: List[str],
+    remaining_pool: List[str],
     experiment_name: str = "default",
     feature_groups: List[str] | None = None,
+    embedding_path: str | None = None,
+    n_warm: int = 1,
     skip_train: bool = False,
     skip_plots: bool = False,
 ) -> Dict[str, Any]:
-    """Execute a single selection → train → eval cycle."""
-    # New hierarchical run tag: experiment/strategy/nN_ssS
-    run_tag = f"{experiment_name}/{strategy_name}/n{n_points}_ss{seed}"
+    """Execute a single incremental selection → train → eval step.
+
+    Parameters
+    ----------
+    n_points : int
+        Number of **new** points to pick in this step.
+    selected_points : list[str]
+        Points already selected in prior steps.
+    remaining_pool : list[str]
+        Pool points not yet selected (passed to strategy as ``pool_points``).
+
+    Returns
+    -------
+    dict with run results including newly_selected and cumulative totals.
+    """
+    cumulative_n = len(selected_points) + n_points
+    run_tag = f"{experiment_name}/{strategy_name}/n{cumulative_n}_ss{seed}"
     print(f"\n{'#'*80}")
-    print(f"  RUN: {run_tag}")
+    print(f"  RUN: {run_tag}  (step +{n_points}, cumulative {cumulative_n})")
     print(f"{'#'*80}\n")
 
-    # 1. Get pool points
-    pool_points = [str(p) for p in base_dict["data"]["pool_points"]]
-    print(f"Pool size: {len(pool_points)} points")
+    print(f"Remaining pool: {len(remaining_pool)} | Already selected: {len(selected_points)}")
 
-    # 2. Run selection strategy
+    # Run selection strategy on remaining pool
     strategy_kwargs = dict(n_points=n_points, seed=seed)
     if feature_groups and strategy_name == "stratified":
         strategy_kwargs["feature_groups"] = feature_groups
+    if strategy_name in ("maxdist", "lcmd"):
+        if embedding_path:
+            strategy_kwargs["embedding_path"] = embedding_path
+        strategy_kwargs["n_warm"] = n_warm
 
     strategy = get_strategy(strategy_name, **strategy_kwargs)
-    result = strategy.select(pool_points, metadata=metadata)
-    print(f"Selected {result.n_points} training points via '{result.strategy_name}'")
+    result = strategy.select(
+        remaining_pool,
+        selected_points=selected_points,
+        metadata=metadata,
+    )
+    newly_selected = result.selected_points
+    print(f"Newly selected {len(newly_selected)} points via '{result.strategy_name}'")
 
-    # 3. Train and evaluate
+    # Cumulative training set for this step
+    cumulative_selected = selected_points + newly_selected
+
+    # Build a SelectionResult that represents the full cumulative selection
+    cumulative_result = SelectionResult(
+        selected_points=sorted(cumulative_selected),
+        strategy_name=result.strategy_name,
+        strategy_params=result.strategy_params,
+        metadata={
+            **result.metadata,
+            "step_newly_selected": newly_selected,
+            "step_n_points": n_points,
+            "cumulative_n_points": cumulative_n,
+        },
+    )
+
+    # Use the full pool (from base_dict) for plots
+    full_pool = [str(p) for p in base_dict["data"]["pool_points"]]
+
+    # Train and evaluate on the cumulative set
     out = train_eval_single(
         base_dict=base_dict,
-        selected_points=result.selected_points,
+        selected_points=cumulative_selected,
         run_tag=run_tag,
-        result=result,
+        result=cumulative_result,
         skip_train=skip_train,
         skip_plots=skip_plots,
-        pool_points=pool_points,
+        pool_points=full_pool,
         metadata=metadata,
     )
 
     return {
         "run_tag": run_tag,
-        "n_points": n_points,
+        "n_points": cumulative_n,
+        "step_size": n_points,
         "strategy": strategy_name,
         "yield_r2": out["metrics"]["yield"]["r2"],
         "yield_rmse": out["metrics"]["yield"]["rmse"],
         "somsc_r2": out["metrics"]["somsc"]["r2"],
         "somsc_rmse": out["metrics"]["somsc"]["rmse"],
+        "newly_selected": newly_selected,
     }
 
 
 def run_sweep(args):
-    """Run all requested budget sizes and produce a comparison plot."""
+    """Run incremental selection steps and produce a budget curve.
+
+    At each step, ``step_size`` new points are selected (without replacement)
+    from the remaining pool, appended to the cumulative training set, and a
+    model is trained + evaluated.  This continues until the cumulative
+    budget reaches ``max_points`` or the pool is exhausted.
+    """
     base_dict = load_base_config(args.base_config)
     resolve_point_lists(base_dict, os.path.dirname(os.path.abspath(args.base_config)))
     metadata = load_metadata(base_dict)
 
     experiment_name = args.experiment_name
+    step_size = args.step_size
+
+    # Full pool and incremental state
+    full_pool = [str(p) for p in base_dict["data"]["pool_points"]]
+    remaining_pool = list(full_pool)
+    selected_so_far: List[str] = []
+
+    max_points = args.max_points if args.max_points else len(full_pool)
 
     all_results = []
-    for n in args.n_points:
+    step_num = 0
+    while len(selected_so_far) < max_points and remaining_pool:
+        # How many points to pick this step (may be less at the end)
+        n_this_step = min(step_size, max_points - len(selected_so_far), len(remaining_pool))
+        if n_this_step <= 0:
+            break
+        step_num += 1
+
+        print(f"\n{'='*80}")
+        print(f"  INCREMENTAL STEP {step_num}: selecting {n_this_step} new points")
+        print(f"  Cumulative budget will be {len(selected_so_far) + n_this_step}")
+        print(f"{'='*80}")
+
         row = run_single(
             base_dict=base_dict,
             strategy_name=args.strategy,
-            n_points=n,
+            n_points=n_this_step,
             seed=args.seed,
             metadata=metadata,
+            selected_points=selected_so_far,
+            remaining_pool=remaining_pool,
             experiment_name=experiment_name,
             feature_groups=args.feature_groups,
+            embedding_path=args.embedding_path,
+            n_warm=args.n_warm,
             skip_train=args.skip_train,
             skip_plots=args.skip_plots,
         )
+
+        # Update incremental state
+        newly_selected = row.pop("newly_selected")
+        newly_set = set(newly_selected)
+        selected_so_far.extend(newly_selected)
+        remaining_pool = [p for p in remaining_pool if p not in newly_set]
+
         all_results.append(row)
 
     # Save aggregate results
@@ -409,18 +496,18 @@ def run_sweep(args):
     print(f"\nSweep results saved → {csv_path}")
     print(df.to_string(index=False))
 
-    # Plot budget curves if we have multiple n_points
-    if len(args.n_points) > 1:
+    # Plot budget curves if we have multiple steps
+    if len(all_results) > 1:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5))
 
         axes[0].plot(df["n_points"], df["yield_r2"], "o-", color="dodgerblue", linewidth=2)
-        axes[0].set_xlabel("# Training Points")
+        axes[0].set_xlabel("# Training Points (cumulative)")
         axes[0].set_ylabel("Yield R²")
         axes[0].set_title(f"Yield R² vs Budget ({args.strategy})")
         axes[0].grid(True, alpha=0.3)
 
         axes[1].plot(df["n_points"], df["somsc_r2"], "o-", color="coral", linewidth=2)
-        axes[1].set_xlabel("# Training Points")
+        axes[1].set_xlabel("# Training Points (cumulative)")
         axes[1].set_ylabel("SOMSC R²")
         axes[1].set_title(f"SOMSC R² vs Budget ({args.strategy})")
         axes[1].grid(True, alpha=0.3)
@@ -434,7 +521,7 @@ def run_sweep(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run point-selection experiment(s) for DayCent emulation.",
+        description="Run incremental point-selection experiment(s) for DayCent emulation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -443,13 +530,18 @@ def main():
     )
     parser.add_argument(
         "--strategy", type=str, required=True,
-        choices=["random", "stratified"],
+        choices=["random", "stratified", "maxdist", "lcmd"],
         help="Selection strategy name.",
     )
     parser.add_argument(
-        "--n-points", type=int, nargs="+", required=True,
-        help="Number(s) of training points to select. "
-             "Pass multiple values for a budget sweep.",
+        "--step-size", type=int, required=True,
+        help="Number of new points to select at each incremental step.",
+    )
+    parser.add_argument(
+        "--max-points", type=int, default=None,
+        help="Maximum cumulative training points.  The incremental loop "
+             "stops when this budget is reached or the pool is exhausted.  "
+             "If omitted, runs until the entire pool is selected.",
     )
     parser.add_argument(
         "--seed", type=int, default=42,
@@ -464,6 +556,16 @@ def main():
         "--feature-groups", type=str, nargs="*", default=None,
         help="Feature groups for stratified strategy "
              "(e.g. spatial soil elevation climate).",
+    )
+    parser.add_argument(
+        "--embedding-path", type=str, default=None,
+        help="Path to directory with avg_codes.npy / avg_codes_pids.npy "
+             "(required for maxdist / lcmd strategies).",
+    )
+    parser.add_argument(
+        "--n-warm", type=int, default=1,
+        help="Number of random warm-start points for maxdist / lcmd "
+             "(default: 1).",
     )
     parser.add_argument(
         "--skip-train", action="store_true",
