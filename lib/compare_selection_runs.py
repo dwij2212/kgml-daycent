@@ -2,9 +2,9 @@
 Compare selection experiment results across strategies and budget sizes.
 
 Usage:
-    python compare_selection_runs.py --runs-dir /users/6/mehta423/daycent/output/selection
+    python compare_selection_runs.py --runs-dir /users/6/mehta423/projects/daycent/output/selection
     python compare_selection_runs.py --csv sweep_random.csv sweep_stratified.csv
-    python compare_selection_runs.py --ensembles --runs-dir /users/6/mehta423/daycent/output/selection
+    python compare_selection_runs.py --ensembles --runs-dir /users/6/mehta423/projects/daycent/output/selection
 """
 import argparse
 import glob
@@ -196,40 +196,55 @@ def collect_ensemble_summaries(runs_dir: str) -> pd.DataFrame:
 
 def plot_comparison(df: pd.DataFrame, save_dir: str):
     """Generate comparison plots for all strategies found in *df*."""
-    strategies = df["strategy"].unique()
-    cmap = matplotlib.colormaps["tab10"].resampled(len(strategies))
+    # Group by strategy and n_points to compute mean and std
+    df_agg = df.groupby(["strategy", "n_points"]).agg({
+        "yield_r2": ["mean", "std"],
+        "yield_rmse": ["mean", "std"],
+        "somsc_r2": ["mean", "std"],
+        "somsc_rmse": ["mean", "std"],
+    }).reset_index()
+    
+    # Flatten the multi-level columns
+    df_agg.columns = [
+        "strategy", "n_points",
+        "yield_r2_mean", "yield_r2_std",
+        "yield_rmse_mean", "yield_rmse_std",
+        "somsc_r2_mean", "somsc_r2_std",
+        "somsc_rmse_mean", "somsc_rmse_std"
+    ]
+
+    strategies = df_agg["strategy"].unique()
+    cmap = matplotlib.colormaps["tab10"].resampled(max(1, len(strategies)))
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
+    plots = [
+        ("yield_r2_mean", "yield_r2_std", "Yield R²", "Yield R² vs Budget", (0, 0)),
+        ("yield_rmse_mean", "yield_rmse_std", "Yield RMSE", "Yield RMSE vs Budget", (0, 1)),
+        ("somsc_r2_mean", "somsc_r2_std", "SOMSC R²", "SOMSC R² vs Budget", (1, 0)),
+        ("somsc_rmse_mean", "somsc_rmse_std", "SOMSC RMSE", "SOMSC RMSE vs Budget", (1, 1)),
+    ]
+
     for i, strat in enumerate(sorted(strategies)):
-        sub = df[df["strategy"] == strat].sort_values("n_points")
+        sub = df_agg[df_agg["strategy"] == strat].sort_values("n_points")
         color = cmap(i)
-        label = strat
+        x = sub["n_points"]
+        
+        for mean_col, std_col, ylabel, title, (r, c) in plots:
+            ax = axes[r, c]
+            y = sub[mean_col]
+            yerr = sub[std_col].fillna(0)
+            
+            ax.plot(x, y, "o-", color=color, label=strat, linewidth=2)
 
-        axes[0, 0].plot(sub["n_points"], sub["yield_r2"], "o-",
-                        color=color, label=label, linewidth=2)
-        axes[0, 1].plot(sub["n_points"], sub["yield_rmse"], "o-",
-                        color=color, label=label, linewidth=2)
-        axes[1, 0].plot(sub["n_points"], sub["somsc_r2"], "o-",
-                        color=color, label=label, linewidth=2)
-        axes[1, 1].plot(sub["n_points"], sub["somsc_rmse"], "o-",
-                        color=color, label=label, linewidth=2)
+    for (_, _, ylabel, title, (r, c)) in plots:
+        axes[r, c].set_ylabel(ylabel)
+        axes[r, c].set_title(title)
+        axes[r, c].set_xlabel("# Training Points")
+        axes[r, c].grid(True, alpha=0.3)
+        axes[r, c].legend(fontsize=8)
 
-    for ax in axes.flat:
-        ax.grid(True, alpha=0.3)
-        ax.set_xlabel("# Training Points")
-        ax.legend()
-
-    axes[0, 0].set_ylabel("Yield R²")
-    axes[0, 0].set_title("Yield R² vs Budget")
-    axes[0, 1].set_ylabel("Yield RMSE")
-    axes[0, 1].set_title("Yield RMSE vs Budget")
-    axes[1, 0].set_ylabel("SOMSC R²")
-    axes[1, 0].set_title("SOMSC R² vs Budget")
-    axes[1, 1].set_ylabel("SOMSC RMSE")
-    axes[1, 1].set_title("SOMSC RMSE vs Budget")
-
-    fig.suptitle("Selection Strategy Comparison", fontsize=14, fontweight="bold")
+    fig.suptitle("Selection Strategy Comparison (mean)", fontsize=14, fontweight="bold")
     plt.tight_layout()
 
     out_path = os.path.join(save_dir, "strategy_comparison.png")
@@ -271,8 +286,6 @@ def plot_ensemble_comparison(df: pd.DataFrame, save_dir: str):
                       else f"{int(n.min())}–{int(n.max())} members"
             ax.plot(x, mean, "o-", color=color,
                     label=f"{strat} ({n_label})", linewidth=2)
-            ax.fill_between(x, mean - std, mean + std,
-                            color=color, alpha=0.18)
 
     for (_, _, ylabel, title, (r, c)) in metrics:
         axes[r, c].set_ylabel(ylabel)
@@ -281,7 +294,7 @@ def plot_ensemble_comparison(df: pd.DataFrame, save_dir: str):
         axes[r, c].grid(True, alpha=0.3)
         axes[r, c].legend(fontsize=8)
 
-    fig.suptitle("Selection Strategy Comparison (mean ± 1 std)",
+    fig.suptitle("Selection Strategy Comparison (mean)",
                  fontsize=14, fontweight="bold")
     plt.tight_layout()
 
@@ -294,7 +307,7 @@ def plot_ensemble_comparison(df: pd.DataFrame, save_dir: str):
 def main():
     parser = argparse.ArgumentParser(description="Compare selection runs.")
     parser.add_argument("--runs-dir", type=str,
-                        default="/users/6/mehta423/daycent/output/selection",
+                        default="/users/6/mehta423/projects/daycent/output/selection",
                         help="Root directory containing selection run outputs.")
     parser.add_argument("--csv", type=str, nargs="*",
                         help="Explicit CSV paths to merge (from sweep results).")

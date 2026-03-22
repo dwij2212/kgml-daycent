@@ -152,7 +152,7 @@ def load_management_data(scenario_ids: list, scenarios_file: str, legacy_dir_str
     if not legacy_dir_structure:
         return pd.read_csv(scenarios_file)
 
-    scenarios_file = "/users/6/mehta423/daycent/data/SAS_KGML_090925/InputData/schedule_scenarios_all_Synthetic_10000.csv"
+    scenarios_file = "/users/6/mehta423/projects/daycent/data/SAS_KGML_090925/InputData/schedule_scenarios_all_Synthetic_10000.csv"
 
     scenarios_df = pd.read_csv(scenarios_file).rename({'simyear': 'Year'}, axis=1)
     

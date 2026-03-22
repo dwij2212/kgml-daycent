@@ -9,4 +9,4 @@ set -e
 cd "$(dirname "$0")/.."
 
 python compare_selection_runs.py \
-    --runs-dir /users/6/mehta423/daycent/output/selection
+    --runs-dir /users/6/mehta423/projects/daycent/output/selection
