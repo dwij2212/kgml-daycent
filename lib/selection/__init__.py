@@ -22,6 +22,7 @@ from .base import BaseStrategy, SelectionResult
 from .random_strategy import RandomStrategy
 from .stratified_strategy import StratifiedStrategy
 from .embedding_strategy import MaxDistStrategy, LCMDStrategy
+from .bo_graph import BOGraphStrategy
 from .registry import STRATEGY_REGISTRY, get_strategy, register_strategy
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "StratifiedStrategy",
     "MaxDistStrategy",
     "LCMDStrategy",
+    "BOGraphStrategy",
     "STRATEGY_REGISTRY",
     "get_strategy",
     "register_strategy",

@@ -91,7 +91,7 @@ class SplitConfig:
 @dataclass
 class DataConfig:
     """Configuration for data preparation."""
-    base_dir: str = "/users/6/mehta423/daycent/data/SAS_KGML_090925"
+    base_dir: str = "/users/6/mehta423/projects/daycent/data/SAS_KGML_090925"
     input_dir: str = field(init=False)
     output_dir: str = field(init=False)
     weather_dir: str = field(init=False)
@@ -311,8 +311,8 @@ class ExperimentConfig:
         if self.shared_processed_dir:
             self.processed_dir = self.shared_processed_dir
         else:
-            self.processed_dir = f"/users/6/mehta423/daycent/data/{self.experiment_id}"
-        self.output_dir = f"/users/6/mehta423/daycent/output/{self.experiment_id}"
+            self.processed_dir = f"/users/6/mehta423/projects/daycent/data/{self.experiment_id}"
+        self.output_dir = f"/users/6/mehta423/projects/daycent/output/{self.experiment_id}"
         self.plots_dir = os.path.join(self.output_dir, "plots")
 
         # Create directories if they don't exist
@@ -571,7 +571,7 @@ class InverseExperimentConfig:
 
     def __post_init__(self):
         if not self.output_dir:
-            self.output_dir = f"/users/6/mehta423/daycent/output/{self.experiment_id}"
+            self.output_dir = f"/users/6/mehta423/projects/daycent/output/{self.experiment_id}"
         self.model_dir  = os.path.join(self.output_dir, "models")
         self.result_dir = os.path.join(self.output_dir, "results")
         os.makedirs(self.model_dir,  exist_ok=True)

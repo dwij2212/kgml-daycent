@@ -26,7 +26,7 @@ Usage examples
       --base-config configs/selection_base.yaml \\
       --strategy lcmd --step-size 25 --max-points 150 \\
       --seed 42 \\
-      --embedding-path /users/6/mehta423/daycent/output/inverse_1/eval \\
+      --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval \\
       --ensemble-seeds 42 123 456 789 1024 \\
       --experiment-name exp5_lcmd
 """
@@ -157,7 +157,7 @@ def run_ensemble(
     # Budget-level directory (shared across all members)
     budget_tag = f"{experiment_name}/{strategy_name}/n{n_points}_ss{selection_seed}"
     budget_dir = os.path.join(
-        "/users/6/mehta423/daycent/output/selection", budget_tag
+        "/users/6/mehta423/projects/daycent/output/selection", budget_tag
     )
     os.makedirs(budget_dir, exist_ok=True)
 
@@ -185,7 +185,7 @@ def run_ensemble(
 
     # Shared preprocessed data cache: all members reuse the same .npy files
     shared_processed_dir = os.path.join(
-        "/users/6/mehta423/daycent/data/selection", budget_tag
+        "/users/6/mehta423/projects/daycent/data/selection", budget_tag
     )
 
     # Train each ensemble member sequentially
@@ -342,7 +342,7 @@ def run_ensemble_sweep(args) -> None:
 
     # Save aggregated CSV for the sweep
     sweep_dir = os.path.join(
-        "/users/6/mehta423/daycent/output/selection",
+        "/users/6/mehta423/projects/daycent/output/selection",
         args.experiment_name,
         args.strategy,
         f"ensemble_sweep_ss{args.seed}",

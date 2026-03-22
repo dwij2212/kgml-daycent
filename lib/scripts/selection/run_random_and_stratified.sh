@@ -22,7 +22,7 @@
 # ============================================================
 
 
-cd /users/6/mehta423/daycent/lib
+cd /users/6/mehta423/projects/daycent/lib
 
 # Activate environment
 source ~/anaconda3/etc/profile.d/conda.sh
@@ -31,17 +31,15 @@ conda activate wstatt
 EXTRA_ARGS="$@"
 
 python run_ensemble_experiment.py \
-    --base-config configs/selection/selection_base.yaml \
-    --strategy random \
-    --n-points 25 50 100 150 200 250 300 350 400 \
-    --seed 42 \
-    $EXTRA_ARGS
-
+      --base-config configs/selection/selection_base.yaml \
+      --strategy random --step-size 50 --max-points 300 \
+      --seed 42 \
+      --ensemble-seeds 42 123 456 789 1024 \
+      --experiment-name exp5_random
 
 python run_ensemble_experiment.py \
-    --base-config configs/selection/selection_base.yaml \
-    --strategy stratified \
-    --n-points 25 50 100 150 200 250 300 350 400 \
-    --seed 42 \
-    --feature-groups spatial elevation climate soil \
-    $EXTRA_ARGS
+      --base-config configs/selection/selection_base.yaml \
+      --strategy stratified --step-size 50 --max-points 300 \
+      --seed 42 \
+      --ensemble-seeds 42 123 456 789 1024 \
+      --experiment-name exp5_stratified

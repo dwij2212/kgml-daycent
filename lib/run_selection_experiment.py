@@ -29,7 +29,7 @@ Usage examples
   python run_selection_experiment.py \\
       --base-config configs/selection_base.yaml \\
       --strategy lcmd --step-size 25 --max-points 150 --seed 42 \\
-      --embedding-path /users/6/mehta423/daycent/output/inverse_1/eval
+      --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval
 """
 import argparse
 import copy
@@ -304,7 +304,7 @@ def train_eval_single(
 
     # Evaluate on test set
     print("\n--- EVALUATION ---")
-    eval_out = evaluate_experiment(config, split=" ", num_samples=3, save_csv=True)
+    eval_out = evaluate_experiment(config, split="test", num_samples=3, save_csv=True)
     metrics = eval_out["metrics"]
 
     elapsed = time.time() - t0
@@ -483,7 +483,7 @@ def run_sweep(args):
 
     # Save aggregate results
     sweep_dir = os.path.join(
-        "/users/6/mehta423/daycent/output/selection",
+        "/users/6/mehta423/projects/daycent/output/selection",
         experiment_name,
         args.strategy,
         f"sweep_s{args.seed}",
