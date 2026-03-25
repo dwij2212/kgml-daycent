@@ -40,9 +40,11 @@ from run_selection_experiment import (
     load_base_config,
     resolve_point_lists,
     load_metadata,
+    build_experiment_config,
     train_eval_single,
 )
 from selection import get_strategy, SelectionResult
+from data.preprocessing import load_raw_data
 
 
 # =========================================================================== #
@@ -58,6 +60,10 @@ def run_bo_loop(args):
 
     pool_points = [str(p) for p in base_dict["data"]["pool_points"]]
     print(f"Pool size: {len(pool_points)}")
+
+    # ---- Load raw data ONCE — reused across all BO iterations ----
+    _tmp_config = build_experiment_config(base_dict, [], "tmp_raw_load")
+    raw_data = load_raw_data(_tmp_config)
 
     # ---- Instantiate BO strategy ----
     strategy = get_strategy(
@@ -111,7 +117,7 @@ def run_bo_loop(args):
             elapsed = 0.0
             print(f"  [DRY-RUN] Random score = {score:.4f}")
         else:
-            # Expensive: train + evaluate
+            # Expensive: train + evaluate (data already loaded, no CSV I/O)
             out = train_eval_single(
                 base_dict=base_dict,
                 selected_points=subset,
@@ -120,6 +126,7 @@ def run_bo_loop(args):
                 skip_plots=(i > 0),
                 pool_points=pool_points,
                 metadata=metadata,
+                raw_data=raw_data,
             )
             metrics = out["metrics"]
             elapsed = out.get("elapsed_seconds", 0.0)

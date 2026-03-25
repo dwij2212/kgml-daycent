@@ -124,22 +124,29 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, config,
     return total_loss / len(train_loader.dataset)
 
 
-def train(config: ExperimentConfig, skip_data_prep: bool = False):
+def train(config: ExperimentConfig, skip_data_prep: bool = False,
+          prepared_data: dict = None):
     """
     Main training function.
-    
+
     Args:
         config: ExperimentConfig instance
-        skip_data_prep: Whether to skip data preparation (use cached data)
+        skip_data_prep: Deprecated — ignored when prepared_data is supplied.
+        prepared_data: Optional pre-loaded & normalized data dict (output of
+            prepare_data_for_datasetv2 / normalize_raw_data).  When provided
+            the expensive data-loading step is skipped entirely.
     """
     print(f"\n{'='*80}")
     print(f"Training Experiment: {config.experiment_id}")
     print(f"Description: {config.description}")
     print(f"{'='*80}\n")
-    
+
     # Step 1: Data preparation
     print("Step 1: Preparing data...")
-    prepared_data = prepare_data_for_datasetv2(config)
+    if prepared_data is None:
+        prepared_data = prepare_data_for_datasetv2(config)
+    else:
+        print("  (using pre-loaded data, skipping disk I/O)")
     
     # Step 2: Setup reproducibility
     print("\nStep 2: Setting up reproducibility...")

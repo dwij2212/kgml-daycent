@@ -264,16 +264,30 @@ def save_predictions_to_csv(predictions, output_path):
     print(f"  Saved {len(df)} predictions")
 
 
-def evaluate_experiment(config, split='test', num_samples=5, save_csv=True):
-    """Main evaluation function."""
+def evaluate_experiment(config, split='test', num_samples=5, save_csv=True,
+                        prepared_data=None):
+    """Main evaluation function.
+
+    Args:
+        config:        ExperimentConfig instance.
+        split:         Which split to evaluate ('train', 'val', 'test', 'all').
+        num_samples:   Number of sample plots to generate.
+        save_csv:      Whether to save predictions to CSV.
+        prepared_data: Optional pre-loaded & normalized data dict (output of
+            prepare_data_for_datasetv2 / normalize_raw_data).  When provided
+            the expensive data-loading step is skipped entirely.
+    """
     print(f"\n{'='*80}")
     print(f"EVALUATING EXPERIMENT: {config.experiment_id}")
     print(f"Description: {config.description}")
     print(f"Split: {split}")
     print(f"{'='*80}\n")
-    
+
     print("Step 1: Preparing data...")
-    prepared_data = prepare_data_for_datasetv2(config, test_only=(split=='test'))
+    if prepared_data is None:
+        prepared_data = prepare_data_for_datasetv2(config, test_only=(split == 'test'))
+    else:
+        print("  (using pre-loaded data, skipping disk I/O)")
     
     print(f"\nStep 2: Loading {split} dataset...")
     

@@ -47,6 +47,7 @@ import pandas as pd
 from utils.config import ExperimentConfig
 from selection import get_strategy, SelectionResult
 from selection.visualize import plot_selected_points, plot_feature_coverage
+from data.preprocessing import load_raw_data
 from run_selection_experiment import (
     load_base_config,
     resolve_point_lists,
@@ -135,6 +136,7 @@ def run_ensemble(
     experiment_name: str = "default",
     skip_train: bool = False,
     skip_plots: bool = False,
+    raw_data: dict | None = None,
 ) -> Dict[str, Any]:
     """Run ensemble for one cumulative budget checkpoint.
 
@@ -210,6 +212,7 @@ def run_ensemble(
             skip_plots=True,   # plots already saved at budget level
             pool_points=full_pool,
             metadata=None,     # skip per-member plots
+            raw_data=raw_data,
         )
         all_metrics.append(out["metrics"])
         member_run_tags.append(member_tag)
@@ -270,6 +273,43 @@ def run_ensemble_sweep(args) -> None:
     selected_so_far: List[str] = []
 
     max_points = args.max_points if args.max_points else len(full_pool)
+
+    # ------------------------------------------------------------------ #
+    # Load raw data ONCE — all members and steps share these DataFrames   #
+    # ------------------------------------------------------------------ #
+    _tmp_config = build_experiment_config(base_dict, [], "tmp_raw_load")
+    raw_data = load_raw_data(_tmp_config)
+
+    # ------------------------------------------------------------------ #
+    # Shared initial points (optional)                                    #
+    # ------------------------------------------------------------------ #
+    sweep_dir = os.path.join(
+        "/users/6/mehta423/projects/daycent/output/selection",
+        args.experiment_name,
+        args.strategy,
+        f"ensemble_sweep_ss{args.seed}",
+    )
+    os.makedirs(sweep_dir, exist_ok=True)
+
+    shared_init_size = getattr(args, "shared_init_size", None) or 0
+    shared_init_file = getattr(args, "shared_init_file", None)
+
+    if shared_init_file and os.path.exists(shared_init_file):
+        with open(shared_init_file) as f:
+            init_info = json.load(f)
+        selected_so_far = [str(p) for p in init_info["points"]]
+        remaining_pool = [p for p in remaining_pool if p not in set(selected_so_far)]
+        print(f"\n[SharedInit] Loaded {len(selected_so_far)} initial points from {shared_init_file}")
+    elif shared_init_size > 0:
+        init_strategy = get_strategy("random", n_points=shared_init_size, seed=args.seed)
+        init_result = init_strategy.select(remaining_pool, selected_points=[], metadata=metadata)
+        selected_so_far = init_result.selected_points
+        remaining_pool = [p for p in remaining_pool if p not in set(selected_so_far)]
+        init_path = os.path.join(sweep_dir, "shared_init_points.json")
+        with open(init_path, "w") as f:
+            json.dump({"seed": args.seed, "n": shared_init_size, "points": selected_so_far}, f, indent=2)
+        print(f"\n[SharedInit] Selected {len(selected_so_far)} random base points (seed={args.seed})")
+        print(f"  Saved to {init_path}")
 
     all_rows = []
     step_num = 0
@@ -332,6 +372,7 @@ def run_ensemble_sweep(args) -> None:
             experiment_name=args.experiment_name,
             skip_train=args.skip_train,
             skip_plots=args.skip_plots,
+            raw_data=raw_data,
         )
         all_rows.append(row)
 
@@ -341,14 +382,6 @@ def run_ensemble_sweep(args) -> None:
         remaining_pool = [p for p in remaining_pool if p not in newly_set]
 
     # Save aggregated CSV for the sweep
-    sweep_dir = os.path.join(
-        "/users/6/mehta423/projects/daycent/output/selection",
-        args.experiment_name,
-        args.strategy,
-        f"ensemble_sweep_ss{args.seed}",
-    )
-    os.makedirs(sweep_dir, exist_ok=True)
-
     df = pd.DataFrame(all_rows)
     csv_path = os.path.join(sweep_dir, "ensemble_sweep_results.csv")
     df.to_csv(csv_path, index=False)
@@ -440,6 +473,17 @@ def main():
     )
     parser.add_argument("--skip-train", action="store_true")
     parser.add_argument("--skip-plots", action="store_true")
+    parser.add_argument(
+        "--shared-init-size", type=int, default=0,
+        help="Select this many random points (using --seed) as a shared starting "
+             "set before the chosen strategy kicks in.  Use the same value and "
+             "seed across strategies to ensure a fair comparison.",
+    )
+    parser.add_argument(
+        "--shared-init-file", type=str, default=None,
+        help="Path to a shared_init_points.json file produced by a prior run.  "
+             "Overrides --shared-init-size.",
+    )
 
     args = parser.parse_args()
 

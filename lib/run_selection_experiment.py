@@ -53,6 +53,7 @@ from selection import get_strategy, SelectionResult
 from selection.visualize import plot_selected_points, plot_feature_coverage
 from train_emulator import train
 from eval_emulator import evaluate_experiment
+from data.preprocessing import load_raw_data, normalize_raw_data
 
 
 # =========================================================================== #
@@ -214,6 +215,95 @@ def save_run_summary(
 #  Core train-eval primitive (reused by ensemble runner)
 # =========================================================================== #
 
+def train_eval_with_data(
+    base_dict: dict,
+    selected_points: List[str],
+    run_tag: str,
+    result: "SelectionResult",
+    raw_data: dict,
+    train_seed: int | None = None,
+    shared_processed_dir: str | None = None,
+    skip_train: bool = False,
+    skip_plots: bool = False,
+    pool_points: List[str] | None = None,
+    metadata: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
+    """Train one model using pre-loaded raw DataFrames (no disk I/O for data loading).
+
+    Identical to :func:`train_eval_single` but accepts ``raw_data`` (the dict
+    returned by :func:`load_raw_data`) and normalizes it in-memory for the
+    specific training split.  Use this inside sweep loops to avoid redundant CSV
+    loading across ensemble members and incremental steps.
+
+    Parameters
+    ----------
+    raw_data : dict
+        Unnormalized DataFrames as returned by :func:`load_raw_data`.
+        Must contain keys ``'weather_df'``, ``'management_df'``, ``'output_df'``.
+    """
+    t0 = time.time()
+
+    if pool_points is None:
+        pool_points = [str(p) for p in base_dict["data"]["pool_points"]]
+
+    bd = copy.deepcopy(base_dict)
+    if train_seed is not None:
+        bd["training"]["random_seed"] = train_seed
+    config = build_experiment_config(bd, selected_points, run_tag,
+                                     shared_processed_dir=shared_processed_dir)
+    run_dir = config.output_dir
+    os.makedirs(run_dir, exist_ok=True)
+
+    sel_path = os.path.join(run_dir, "selection_result.json")
+    if not os.path.exists(sel_path):
+        result.save(sel_path)
+
+    if not skip_plots and metadata is not None:
+        test_points = [str(p) for p in base_dict["data"]["test"]["points"]]
+        plot_selected_points(
+            result=result, test_points=test_points, pool_points=pool_points,
+            lookup_df=metadata["lookup_df"],
+            save_path=os.path.join(run_dir, "selection_map.png"),
+        )
+        plt.close("all")
+        plot_feature_coverage(
+            result=result, pool_points=pool_points,
+            init_cond_df=metadata["init_cond_df"],
+            save_path=os.path.join(run_dir, "feature_coverage.png"),
+        )
+        plt.close("all")
+
+    # Normalize the shared raw data for this specific training split
+    train_cfg = config.data.get_train_config()
+    prepared_data = normalize_raw_data(
+        raw_data,
+        train_pids=train_cfg["points"],
+        train_scenario_ids=train_cfg["scenarios"],
+        train_years=train_cfg["years"],
+        scaler_path=config.get_scaler_path(),
+    )
+
+    if not skip_train:
+        print("\n--- TRAINING ---")
+        train(config, prepared_data=prepared_data)
+    else:
+        print("\n--- SKIPPING TRAINING (--skip-train) ---")
+
+    print("\n--- EVALUATION ---")
+    eval_out = evaluate_experiment(config, split="test", num_samples=3, save_csv=True,
+                                   prepared_data=prepared_data)
+    metrics = eval_out["metrics"]
+
+    elapsed = time.time() - t0
+    save_run_summary(run_dir, run_tag, result, metrics, elapsed)
+
+    print(f"\nRUN {run_tag} DONE in {elapsed/60:.1f} min")
+    print(f"  Yield  R²={metrics['yield']['r2']:.4f}  RMSE={metrics['yield']['rmse']:.4f}")
+    print(f"  SOMSC  R²={metrics['somsc']['r2']:.4f}  RMSE={metrics['somsc']['rmse']:.4f}")
+
+    return {"run_tag": run_tag, "metrics": metrics, "elapsed_seconds": elapsed}
+
+
 def train_eval_single(
     base_dict: dict,
     selected_points: List[str],
@@ -225,6 +315,7 @@ def train_eval_single(
     skip_plots: bool = False,
     pool_points: List[str] | None = None,
     metadata: Dict[str, Any] | None = None,
+    raw_data: dict | None = None,
 ) -> Dict[str, Any]:
     """Train one model on *selected_points* and evaluate on the test set.
 
@@ -255,6 +346,22 @@ def train_eval_single(
     -------
     dict with keys: run_tag, metrics, elapsed_seconds
     """
+    # Fast path: delegate to train_eval_with_data when raw DataFrames are available
+    if raw_data is not None:
+        return train_eval_with_data(
+            base_dict=base_dict,
+            selected_points=selected_points,
+            run_tag=run_tag,
+            result=result,
+            raw_data=raw_data,
+            train_seed=train_seed,
+            shared_processed_dir=shared_processed_dir,
+            skip_train=skip_train,
+            skip_plots=skip_plots,
+            pool_points=pool_points,
+            metadata=metadata,
+        )
+
     t0 = time.time()
 
     if pool_points is None:
@@ -335,6 +442,7 @@ def run_single(
     n_warm: int = 1,
     skip_train: bool = False,
     skip_plots: bool = False,
+    raw_data: dict | None = None,
 ) -> Dict[str, Any]:
     """Execute a single incremental selection → train → eval step.
 
@@ -406,6 +514,7 @@ def run_single(
         skip_plots=skip_plots,
         pool_points=full_pool,
         metadata=metadata,
+        raw_data=raw_data,
     )
 
     return {
@@ -443,6 +552,46 @@ def run_sweep(args):
 
     max_points = args.max_points if args.max_points else len(full_pool)
 
+    # ------------------------------------------------------------------ #
+    # Load raw data ONCE — all incremental steps share these DataFrames   #
+    # ------------------------------------------------------------------ #
+    from utils.config import ExperimentConfig
+    from data.preprocessing import load_raw_data
+    # Build a temporary ExperimentConfig just to call load_raw_data
+    _tmp_config = build_experiment_config(base_dict, [], "tmp_raw_load")
+    raw_data = load_raw_data(_tmp_config)
+
+    # ------------------------------------------------------------------ #
+    # Shared initial points (optional)                                    #
+    # ------------------------------------------------------------------ #
+    sweep_dir = os.path.join(
+        "/users/6/mehta423/projects/daycent/output/selection",
+        experiment_name,
+        args.strategy,
+        f"sweep_s{args.seed}",
+    )
+    os.makedirs(sweep_dir, exist_ok=True)
+
+    shared_init_size = getattr(args, "shared_init_size", None) or 0
+    shared_init_file = getattr(args, "shared_init_file", None)
+
+    if shared_init_file and os.path.exists(shared_init_file):
+        with open(shared_init_file) as f:
+            init_info = json.load(f)
+        selected_so_far = [str(p) for p in init_info["points"]]
+        remaining_pool = [p for p in remaining_pool if p not in set(selected_so_far)]
+        print(f"\n[SharedInit] Loaded {len(selected_so_far)} initial points from {shared_init_file}")
+    elif shared_init_size > 0:
+        init_strategy = get_strategy("random", n_points=shared_init_size, seed=args.seed)
+        init_result = init_strategy.select(remaining_pool, selected_points=[], metadata=metadata)
+        selected_so_far = init_result.selected_points
+        remaining_pool = [p for p in remaining_pool if p not in set(selected_so_far)]
+        init_path = os.path.join(sweep_dir, "shared_init_points.json")
+        with open(init_path, "w") as f:
+            json.dump({"seed": args.seed, "n": shared_init_size, "points": selected_so_far}, f, indent=2)
+        print(f"\n[SharedInit] Selected {len(selected_so_far)} random base points (seed={args.seed})")
+        print(f"  Saved to {init_path}")
+
     all_results = []
     step_num = 0
     while len(selected_so_far) < max_points and remaining_pool:
@@ -471,6 +620,7 @@ def run_sweep(args):
             n_warm=args.n_warm,
             skip_train=args.skip_train,
             skip_plots=args.skip_plots,
+            raw_data=raw_data,
         )
 
         # Update incremental state
@@ -482,14 +632,6 @@ def run_sweep(args):
         all_results.append(row)
 
     # Save aggregate results
-    sweep_dir = os.path.join(
-        "/users/6/mehta423/projects/daycent/output/selection",
-        experiment_name,
-        args.strategy,
-        f"sweep_s{args.seed}",
-    )
-    os.makedirs(sweep_dir, exist_ok=True)
-
     df = pd.DataFrame(all_results)
     csv_path = os.path.join(sweep_dir, "sweep_results.csv")
     df.to_csv(csv_path, index=False)
@@ -574,6 +716,17 @@ def main():
     parser.add_argument(
         "--skip-plots", action="store_true",
         help="Skip visualisation plots.",
+    )
+    parser.add_argument(
+        "--shared-init-size", type=int, default=0,
+        help="Select this many random points (using --seed) as a shared starting "
+             "set before the chosen strategy kicks in.  Use the same value and "
+             "seed across strategies to ensure a fair comparison.",
+    )
+    parser.add_argument(
+        "--shared-init-file", type=str, default=None,
+        help="Path to a shared_init_points.json file produced by a prior run.  "
+             "Overrides --shared-init-size.",
     )
 
     args = parser.parse_args()
