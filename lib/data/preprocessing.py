@@ -227,6 +227,100 @@ def normalize_outputs(output_df: pd.DataFrame, train_pids: list, train_scenario_
     
     return output_normalized, scaler_Y
 
+def load_raw_data(config) -> dict:
+    """
+    Load raw (unnormalized) DataFrames from disk.  Expensive — call ONCE per sweep
+    and reuse across all incremental steps / ensemble members.
+
+    Args:
+        config: ExperimentConfig instance
+
+    Returns:
+        dict with keys: 'weather_df', 'management_df', 'output_df'
+        (all unnormalized)
+    """
+    from utils.config import ExperimentConfig
+    if not isinstance(config, ExperimentConfig):
+        raise TypeError("config must be an ExperimentConfig instance")
+
+    print(f"\n{'='*80}")
+    print(f"LOADING RAW DATA: {config.experiment_id}")
+    print(f"{'='*80}\n")
+
+    all_scenario_ids = config.data.get_all_scenario_ids()
+    all_point_ids = config.data.get_all_point_ids()
+    print(f"Loading {len(all_scenario_ids)} unique scenarios, {len(all_point_ids)} points...")
+
+    print("\n1. Loading weather data...")
+    weather_df = load_weather_data(config.data.weather_dir, all_point_ids=all_point_ids)
+    print(f"   Weather data shape: {weather_df.shape}")
+
+    print("\n2. Loading management data...")
+    management_df = load_management_data(
+        all_scenario_ids, config.data.scenarios_file, config.data.legacy_dir_structure
+    )
+    print(f"   Management data shape: {management_df.shape}")
+
+    print(f"\n3. Loading output data for {len(all_scenario_ids)} scenarios...")
+    output_df = load_output_data(
+        all_scenario_ids,
+        config.data.output_dir,
+        max_workers=config.data.max_workers,
+        legacy_dir_structure=config.data.legacy_dir_structure,
+        all_point_ids=all_point_ids,
+    )
+    print(f"   Output data shape: {output_df.shape}")
+
+    print("\nRAW DATA LOAD COMPLETE\n")
+    return {
+        "weather_df": weather_df,
+        "management_df": management_df,
+        "output_df": output_df,
+    }
+
+
+def normalize_raw_data(
+    raw_data: dict,
+    train_pids: list,
+    train_scenario_ids: list,
+    train_years: list,
+    scaler_path: str = None,
+) -> dict:
+    """
+    Normalize raw DataFrames for a specific training split.  Cheap — call once
+    per (training-point-set, run) combination.
+
+    Makes copies of the input DataFrames so that the caller's ``raw_data`` dict
+    remains unnormalized and can be reused for subsequent runs.
+
+    Args:
+        raw_data:           dict returned by :func:`load_raw_data`
+        train_pids:         list of training point IDs
+        train_scenario_ids: list of training scenario IDs
+        train_years:        list of training years
+        scaler_path:        optional path to save/load the output scaler
+
+    Returns:
+        dict with the same keys as :func:`prepare_data_for_datasetv2`
+    """
+    weather_df = raw_data["weather_df"].copy()
+    management_df = raw_data["management_df"]          # read-only; no copy needed
+    output_df = raw_data["output_df"].copy()
+
+    weather_df, weather_scaler = normalize_weather_data(weather_df, train_pids)
+    output_df, output_scaler = normalize_outputs(
+        output_df, train_pids, train_scenario_ids, train_years, scaler_path=scaler_path
+    )
+
+    return {
+        "weather_df": weather_df,
+        "management_df": management_df,
+        "output_df": output_df,
+        "weather_scaler": weather_scaler,
+        "output_scaler": output_scaler,
+    }
+
+
 def prepare_data_for_datasetv2(config, test_only=False):
     """
     Prepare data for DayCentDatasetV2 (returns DataFrames, doesn't save to disk).
@@ -247,77 +341,62 @@ def prepare_data_for_datasetv2(config, test_only=False):
         }
     """
     from utils.config import ExperimentConfig
-    
+
     if not isinstance(config, ExperimentConfig):
         raise TypeError("config must be an ExperimentConfig instance")
-    
+
     print(f"\n{'='*80}")
     print(f"PREPARING DATA FOR DATASETV2: {config.experiment_id}")
     print(f"{'='*80}\n")
-    
-    # Get all scenario IDs needed
-    all_scenario_ids = config.data.get_all_scenario_ids()
-    print(f"Loading {len(all_scenario_ids)} unique scenarios...")
 
+    # Optionally restrict to test scenarios only (faster eval path)
     if test_only:
         print("Test-only mode: loading only test scenarios")
-        all_scenario_ids = config.data.test.get_scenario_ids()
-        print(f"  Test scenarios: {len(all_scenario_ids)}")
-    
-    # Load weather data
-    print("\n1. Loading weather data...")
-    all_point_ids = config.data.get_all_point_ids()
-    weather_df = load_weather_data(config.data.weather_dir, all_point_ids=all_point_ids)
-    print(f"   Weather data shape: {weather_df.shape}")
-    
-    # Load management data
-    print("\n2. Loading management data...")
-    management_df = load_management_data(all_scenario_ids, config.data.scenarios_file, config.data.legacy_dir_structure)
-    print(f"   Management data shape: {management_df.shape}")
-    
-    # Load output data
-    print(f"\n3. Loading output data for {len(all_scenario_ids)} scenarios...")
-    output_df = load_output_data(
-        all_scenario_ids,
-        config.data.output_dir,
-        max_workers=config.data.max_workers,
-        legacy_dir_structure=config.data.legacy_dir_structure,
-        all_point_ids=all_point_ids
-    )
-    print(f"   Output data shape: {output_df.shape}")
-    
+        test_scenario_ids = config.data.test.get_scenario_ids()
+        print(f"  Test scenarios: {len(test_scenario_ids)}")
+        # Build a minimal raw_data with test scenarios only
+        all_point_ids = config.data.get_all_point_ids()
+        print("\n1. Loading weather data...")
+        weather_df = load_weather_data(config.data.weather_dir, all_point_ids=all_point_ids)
+        print(f"   Weather data shape: {weather_df.shape}")
+        print("\n2. Loading management data...")
+        management_df = load_management_data(
+            test_scenario_ids, config.data.scenarios_file, config.data.legacy_dir_structure
+        )
+        print(f"   Management data shape: {management_df.shape}")
+        print(f"\n3. Loading output data for {len(test_scenario_ids)} scenarios...")
+        output_df = load_output_data(
+            test_scenario_ids,
+            config.data.output_dir,
+            max_workers=config.data.max_workers,
+            legacy_dir_structure=config.data.legacy_dir_structure,
+            all_point_ids=all_point_ids,
+        )
+        print(f"   Output data shape: {output_df.shape}")
+        raw_data = {"weather_df": weather_df, "management_df": management_df, "output_df": output_df}
+    else:
+        raw_data = load_raw_data(config)
+
     # Get training configuration for normalization
     train_config = config.data.get_train_config()
     if not train_config:
         raise ValueError("Training configuration must be specified for normalization")
-    
-    train_pids = train_config['points']
-    train_scenario_ids = train_config['scenarios']
-    train_years = train_config['years']
-    
-    print(f"\n4. Normalizing weather data...")
-    print(f"   Using {len(train_pids)} training points for fitting")
-    weather_df, weather_scaler = normalize_weather_data(weather_df, train_pids)
-    
-    print(f"\n5. Normalizing output data...")
-    print(f"   Using training split: {len(train_scenario_ids)} scenarios, "
-          f"{len(train_pids)} points, {len(train_years)} years")
-    output_df, output_scaler = normalize_outputs(
-        output_df, 
-        train_pids, 
-        train_scenario_ids, 
-        train_years,
-        scaler_path=config.get_scaler_path()
+
+    train_pids = train_config["points"]
+    train_scenario_ids = train_config["scenarios"]
+    train_years = train_config["years"]
+
+    print(f"\n4. Normalizing weather data (using {len(train_pids)} training points)...")
+    print(f"\n5. Normalizing output data ({len(train_scenario_ids)} scenarios, "
+          f"{len(train_pids)} points, {len(train_years)} years)...")
+
+    prepared = normalize_raw_data(
+        raw_data, train_pids, train_scenario_ids, train_years,
+        scaler_path=config.get_scaler_path(),
     )
-    
+
     print("\n" + "="*80)
     print("DATA PREPARATION COMPLETE")
     print("="*80 + "\n")
-    
-    return {
-        'weather_df': weather_df,
-        'management_df': management_df,
-        'output_df': output_df,
-        'weather_scaler': weather_scaler,
-        'output_scaler': output_scaler
-    }
+
+    return prepared

@@ -787,3 +787,479 @@ class BOGraphStrategy(BaseStrategy):
                 "n_total_observations": len(self._observations),
             },
         )
+
+
+# =========================================================================== #
+#  Standalone demo with REAL embeddings + mock objective
+# =========================================================================== #
+
+if __name__ == "__main__":
+    """
+    Runs the full BO-Graph pipeline on your real DayCent embeddings with a
+    mock objective (no LSTM training) so you can visualise what the algorithm
+    does.
+
+    Usage:
+      cd /users/6/mehta423/projects/daycent/lib
+      conda activate wstatt
+      python -m selection.bo_graph --T 30 --k 50 --out-dir bo_graph_demo
+    """
+    import argparse
+    import csv
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.collections import LineCollection
+    from scipy.spatial.distance import pdist as _pdist
+    from sklearn.decomposition import PCA
+    from sklearn.cluster import KMeans
+
+    # ------------------------------------------------------------------
+    #  CLI
+    # ------------------------------------------------------------------
+    parser = argparse.ArgumentParser(
+        description="Demo BO-Graph on real DayCent embeddings + mock objective.",
+    )
+    parser.add_argument(
+        "--embedding-path", type=str,
+        default="/users/6/mehta423/projects/daycent/output/inverse_1/eval",
+    )
+    parser.add_argument(
+        "--pool-csv", type=str,
+        default="/users/6/mehta423/projects/daycent/lib/configs/selection/"
+                "point_sets/pool_exp5_400.csv",
+    )
+    parser.add_argument("--k", type=int, default=50,
+                        help="Subset size (default: 50).")
+    parser.add_argument("--T", type=int, default=30,
+                        help="BO iterations (default: 30).")
+    parser.add_argument("--Q", type=int, default=200,
+                        help="Combo-subgraph size (default: 200).")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--epsilon-factor", type=float, default=0.3)
+    parser.add_argument("--max-radius", type=int, default=3)
+    parser.add_argument("--n-clusters", type=int, default=10,
+                        help="KMeans clusters for mock objective + colouring.")
+    parser.add_argument("--out-dir", type=str, default="bo_graph_demo")
+    args = parser.parse_args()
+
+    os.makedirs(args.out_dir, exist_ok=True)
+    rng = np.random.RandomState(args.seed)
+
+    # ------------------------------------------------------------------
+    #  1. Load real embeddings + pool points
+    # ------------------------------------------------------------------
+    codes_all = np.load(os.path.join(args.embedding_path, "avg_codes.npy"))
+    pids_all = np.load(os.path.join(args.embedding_path, "avg_codes_pids.npy"))
+    pids_all = [str(p) for p in pids_all]
+    pid_to_emb_idx = {p: i for i, p in enumerate(pids_all)}
+
+    with open(args.pool_csv) as f:
+        reader = csv.DictReader(f)
+        pool_pids_raw = [row["point_id"] for row in reader]
+
+    pool_pids = [p for p in pool_pids_raw if p in pid_to_emb_idx]
+    pool_indices = [pid_to_emb_idx[p] for p in pool_pids]
+    embeddings_raw = codes_all[pool_indices]          # (N_pool, 32)
+
+    norms = np.linalg.norm(embeddings_raw, axis=1)
+    embeddings = embeddings_raw / max(norms.mean(), 1e-8)
+
+    N = len(pool_pids)
+    print(f"Loaded {N} pool points with {embeddings.shape[1]}-D embeddings")
+    print(f"  ({len(pids_all)} total embedding PIDs, "
+          f"{len(pool_pids_raw)} in pool CSV)")
+
+    # PCA → 2-D for plotting
+    pca = PCA(n_components=2, random_state=args.seed)
+    emb_2d = pca.fit_transform(embeddings_raw)
+    print(f"PCA explained variance: {pca.explained_variance_ratio_.sum():.2%}")
+
+    # KMeans clustering (mock objective + colouring)
+    km = KMeans(n_clusters=args.n_clusters, random_state=args.seed, n_init=10)
+    cluster_labels = km.fit_predict(embeddings_raw)
+
+    pid_to_idx = {p: i for i, p in enumerate(pool_pids)}
+    idx_to_pid = {i: p for i, p in enumerate(pool_pids)}
+
+    # ------------------------------------------------------------------
+    #  2. Build base graph
+    # ------------------------------------------------------------------
+    base_graph = _build_base_graph(embeddings, args.epsilon_factor)
+    n_edges = base_graph.number_of_edges()
+    n_nodes_bg = base_graph.number_of_nodes()
+    print(f"Base graph: {n_nodes_bg} nodes, {n_edges} edges, "
+          f"mean degree {2 * n_edges / max(n_nodes_bg, 1):.1f}")
+
+    # ------------------------------------------------------------------
+    #  3. Mock objective
+    #
+    #  score(S) = 0.4 * cluster_coverage + 0.6 * diversity + noise
+    #    cluster_coverage = fraction of K clusters "hit" by the subset
+    #    diversity = mean pairwise distance in embedding space (normalised)
+    # ------------------------------------------------------------------
+    _emb_std = max(float(embeddings_raw.std()), 1e-8)
+
+    def mock_objective(indices: tuple, noise_std: float = 0.02) -> float:
+        idx = list(indices)
+        clusters_hit = len(set(cluster_labels[idx]))
+        coverage = clusters_hit / args.n_clusters
+        if len(idx) > 1:
+            sub = idx if len(idx) <= 30 else rng.choice(idx, 30, replace=False).tolist()
+            diversity = float(_pdist(embeddings_raw[sub]).mean()) / _emb_std
+        else:
+            diversity = 0.0
+        return float(0.4 * coverage + 0.6 * diversity + rng.randn() * noise_std)
+
+    # ------------------------------------------------------------------
+    #  4. Run ask-tell BO loop using building blocks directly
+    # ------------------------------------------------------------------
+    trust_state = _TrustRegionState(
+        n_nodes=args.Q, n_nodes_max=args.Q,
+        fail_tol=15, succ_tol=8, shrink_tol=4,
+    )
+    observations: List[Tuple[tuple, float]] = []
+    bo_rng = np.random.RandomState(args.seed + 1)
+
+    # initial random subset
+    init_idx = bo_rng.choice(N, args.k, replace=False)
+    center = tuple(sorted(init_idx.tolist()))
+    score = mock_objective(center)
+    observations.append((center, score))
+    _update_trust_region(trust_state, score)
+    best_combo, best_score = center, score
+
+    combo_sub, n_hop = _build_combo_subgraph(
+        base_graph, center, Q=args.Q, l_max=args.max_radius, rng=bo_rng,
+    )
+    eigenvalues, eigenvecs = _eigendecompose_laplacian(combo_sub)
+
+    scores_per_iter = [score]
+    best_per_iter   = [best_score]
+    ei_per_iter     = [None]
+    ls_per_iter     = [None]
+    noise_per_iter  = [None]
+
+    for t in range(1, args.T):
+        # restart?
+        if trust_state.restart_triggered:
+            center_idx = bo_rng.choice(N, args.k, replace=False)
+            center = tuple(sorted(center_idx.tolist()))
+            trust_state = _TrustRegionState(
+                n_nodes=args.Q, n_nodes_max=args.Q,
+                fail_tol=15, succ_tol=8, shrink_tol=4,
+                best_value=best_score,
+            )
+            combo_sub, n_hop = _build_combo_subgraph(
+                base_graph, center, Q=args.Q, l_max=args.max_radius, rng=bo_rng,
+            )
+            eigenvalues, eigenvecs = _eigendecompose_laplacian(combo_sub)
+            print(f"  [Restart at iter {t}]")
+
+        # shrink?
+        if trust_state.shrink_triggered:
+            if n_hop > 1:
+                n_hop -= 1
+                combo_sub = nx.ego_graph(combo_sub, center, n_hop)
+                eigenvalues, eigenvecs = _eigendecompose_laplacian(combo_sub)
+            trust_state.shrink_triggered = False
+
+        node_list = list(combo_sub.nodes())
+        combo_to_local = {n: i for i, n in enumerate(node_list)}
+        observed_set = {o[0] for o in observations}
+
+        local_idx, local_y = [], []
+        for combo, sc in observations:
+            if combo in combo_to_local:
+                local_idx.append(combo_to_local[combo])
+                local_y.append(sc)
+
+        if len(local_y) < 2:
+            unqueried = [n for n in node_list if n not in observed_set]
+            if unqueried:
+                pick = unqueried[bo_rng.randint(len(unqueried))]
+            else:
+                pick_idx = bo_rng.choice(N, args.k, replace=False)
+                pick = tuple(sorted(pick_idx.tolist()))
+            sc = mock_objective(pick)
+            observations.append((pick, sc))
+            _update_trust_region(trust_state, sc)
+            if sc > best_score:
+                best_score, best_combo = sc, pick
+            scores_per_iter.append(sc)
+            best_per_iter.append(best_score)
+            ei_per_iter.append(None)
+            ls_per_iter.append(None)
+            noise_per_iter.append(None)
+            continue
+
+        train_idx = np.array(local_idx, dtype=int)
+        y_arr = np.array(local_y)
+        y_mean = y_arr.mean()
+        y_std  = max(float(y_arr.std()), 1e-8)
+        y_std_arr = (y_arr - y_mean) / y_std
+
+        ls, noise_var = _optimize_hyperparams(eigenvalues, eigenvecs, train_idx, y_arr)
+
+        cand_local = np.array(
+            [i for i, n in enumerate(node_list) if n not in observed_set],
+            dtype=int,
+        )
+        if len(cand_local) == 0:
+            trust_state.restart_triggered = True
+            scores_per_iter.append(best_score)
+            best_per_iter.append(best_score)
+            ei_per_iter.append(0.0)
+            ls_per_iter.append(ls)
+            noise_per_iter.append(noise_var)
+            continue
+
+        K_train = _diffusion_kernel_matrix(eigenvalues, eigenvecs, ls, train_idx, train_idx)
+        K_cross = _diffusion_kernel_matrix(eigenvalues, eigenvecs, ls, cand_local, train_idx)
+        K_diag  = _kernel_diag(eigenvalues, eigenvecs, ls, cand_local)
+        mu, var = _gp_posterior(K_train, y_std_arr, K_cross, K_diag, noise_var)
+        sigma   = np.sqrt(var)
+
+        f_best  = float(y_std_arr.max())
+        ei      = _expected_improvement(mu, sigma, f_best)
+
+        best_pos  = int(np.argmax(ei))
+        pick      = node_list[cand_local[best_pos]]
+        best_ei   = float(ei[best_pos])
+
+        sc = mock_objective(pick)
+        observations.append((pick, sc))
+        _update_trust_region(trust_state, sc)
+        if sc > best_score:
+            best_score, best_combo = sc, pick
+            center = pick
+            combo_sub, n_hop = _build_combo_subgraph(
+                base_graph, center, Q=trust_state.n_nodes,
+                l_max=args.max_radius, rng=bo_rng,
+            )
+            eigenvalues, eigenvecs = _eigendecompose_laplacian(combo_sub)
+
+        scores_per_iter.append(sc)
+        best_per_iter.append(best_score)
+        ei_per_iter.append(best_ei)
+        ls_per_iter.append(ls)
+        noise_per_iter.append(noise_var)
+
+        if t % 5 == 0 or t == args.T - 1:
+            print(f"  iter {t:3d}: score={sc:.4f}  best={best_score:.4f}  "
+                  f"EI={best_ei:.5f}  ls={ls:.3f}")
+
+    print(f"\nDone. Best score = {best_score:.4f}")
+    print(f"Best subset PIDs (first 5): "
+          f"{[idx_to_pid[i] for i in list(best_combo)[:5]]}")
+
+    # ------------------------------------------------------------------
+    #  5. Visualisations
+    # ------------------------------------------------------------------
+
+    # ---- (a) Base graph in PCA-2D, nodes coloured by cluster ----
+    fig, ax = plt.subplots(figsize=(10, 10))
+    edge_lines = [[emb_2d[u], emb_2d[v]] for u, v in base_graph.edges()]
+    lc = LineCollection(edge_lines, colors="lightgrey", linewidths=0.4,
+                        alpha=0.5, zorder=1)
+    ax.add_collection(lc)
+    scatter = ax.scatter(
+        emb_2d[:, 0], emb_2d[:, 1],
+        c=cluster_labels, cmap="tab10", s=50, edgecolors="k",
+        linewidths=0.4, zorder=2,
+    )
+    plt.colorbar(scatter, ax=ax, label="KMeans cluster", shrink=0.8)
+    best_pts_2d = emb_2d[list(best_combo)]
+    ax.scatter(best_pts_2d[:, 0], best_pts_2d[:, 1], s=160,
+               facecolors="none", edgecolors="red", linewidths=2,
+               zorder=4, label=f"Best subset (score={best_score:.3f})")
+    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%})")
+    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.1%})")
+    ax.set_title(f"Base graph: {N} locations, {n_edges} edges "
+                 f"(eps_factor={args.epsilon_factor})\n"
+                 f"Red circles = best {args.k}-subset")
+    ax.legend(loc="upper right")
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    fig.savefig(os.path.join(args.out_dir, "1_base_graph.png"), dpi=150)
+    plt.close(fig)
+    print(f"Saved: {args.out_dir}/1_base_graph.png")
+
+    # ---- (b) Combo-subgraph (spring layout) ----
+    fig, ax = plt.subplots(figsize=(10, 8))
+    combo_pos = nx.spring_layout(combo_sub, seed=args.seed, k=0.8)
+    queried_set = {o[0] for o in observations}
+    node_colors = []
+    for n in combo_sub.nodes():
+        if n == best_combo:
+            node_colors.append("red")
+        elif n in queried_set:
+            node_colors.append("dodgerblue")
+        else:
+            node_colors.append("lightgrey")
+    nx.draw_networkx_edges(combo_sub, combo_pos, alpha=0.12, ax=ax)
+    nx.draw_networkx_nodes(combo_sub, combo_pos, node_color=node_colors,
+                           node_size=25, ax=ax)
+    ax.set_title(
+        f"Combo-subgraph: {combo_sub.number_of_nodes()} nodes, "
+        f"{combo_sub.number_of_edges()} edges\n"
+        f"Blue = queried, Red = best, Grey = unqueried"
+    )
+    fig.tight_layout()
+    fig.savefig(os.path.join(args.out_dir, "2_combo_subgraph.png"), dpi=150)
+    plt.close(fig)
+    print(f"Saved: {args.out_dir}/2_combo_subgraph.png")
+
+    # ---- (c) Convergence + GP diagnostics (2x2) ----
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    iters = np.arange(len(scores_per_iter))
+
+    axes[0, 0].plot(iters, scores_per_iter, "o-", color="dodgerblue",
+                    markersize=3, alpha=0.6, label="Per-iteration")
+    axes[0, 0].plot(iters, best_per_iter, "s-", color="crimson",
+                    linewidth=2, markersize=4, label="Best so far")
+    axes[0, 0].set_xlabel("BO Iteration")
+    axes[0, 0].set_ylabel("Mock Objective")
+    axes[0, 0].set_title("BO Convergence")
+    axes[0, 0].legend()
+    axes[0, 0].grid(True, alpha=0.3)
+
+    ei_vals = [(i, v) for i, v in enumerate(ei_per_iter) if v is not None]
+    if ei_vals:
+        ei_x, ei_y = zip(*ei_vals)
+        axes[0, 1].plot(ei_x, ei_y, "o-", color="forestgreen", markersize=3)
+    axes[0, 1].set_xlabel("BO Iteration")
+    axes[0, 1].set_ylabel("Expected Improvement")
+    axes[0, 1].set_title("Acquisition (EI)")
+    axes[0, 1].grid(True, alpha=0.3)
+
+    ls_vals = [(i, v) for i, v in enumerate(ls_per_iter) if v is not None]
+    if ls_vals:
+        ls_x, ls_y = zip(*ls_vals)
+        axes[1, 0].plot(ls_x, ls_y, "o-", color="darkorange", markersize=3)
+    axes[1, 0].set_xlabel("BO Iteration")
+    axes[1, 0].set_ylabel("Lengthscale")
+    axes[1, 0].set_title("GP Lengthscale")
+    axes[1, 0].grid(True, alpha=0.3)
+
+    nv = [(i, v) for i, v in enumerate(noise_per_iter) if v is not None]
+    if nv:
+        nv_x, nv_y = zip(*nv)
+        axes[1, 1].plot(nv_x, nv_y, "o-", color="purple", markersize=3)
+    axes[1, 1].set_xlabel("BO Iteration")
+    axes[1, 1].set_ylabel("Noise Variance")
+    axes[1, 1].set_title("GP Noise Variance")
+    axes[1, 1].grid(True, alpha=0.3)
+
+    fig.suptitle(f"BO-Graph on Real Embeddings  (N={N}, k={args.k}, T={args.T})",
+                 fontsize=14, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    fig.savefig(os.path.join(args.out_dir, "3_convergence.png"), dpi=150)
+    plt.close(fig)
+    print(f"Saved: {args.out_dir}/3_convergence.png")
+
+    # ---- (d) GP posterior mean + uncertainty on combo-subgraph ----
+    node_list_final = list(combo_sub.nodes())
+    combo_to_local_f = {n: i for i, n in enumerate(node_list_final)}
+    all_idx = np.arange(len(node_list_final), dtype=int)
+
+    lidx, ly = [], []
+    for combo, sc in observations:
+        if combo in combo_to_local_f:
+            lidx.append(combo_to_local_f[combo])
+            ly.append(sc)
+
+    if len(ly) >= 2:
+        tr_idx = np.array(lidx, dtype=int)
+        y_a = np.array(ly)
+        ym, ys = y_a.mean(), max(float(y_a.std()), 1e-8)
+        y_s = (y_a - ym) / ys
+        ls_f, nv_f = _optimize_hyperparams(eigenvalues, eigenvecs, tr_idx, y_a)
+        Kt = _diffusion_kernel_matrix(eigenvalues, eigenvecs, ls_f, tr_idx, tr_idx)
+        Kc = _diffusion_kernel_matrix(eigenvalues, eigenvecs, ls_f, all_idx, tr_idx)
+        Kd = _kernel_diag(eigenvalues, eigenvecs, ls_f, all_idx)
+        mu_f, var_f = _gp_posterior(Kt, y_s, Kc, Kd, nv_f)
+        sigma_f = np.sqrt(var_f)
+
+        fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+        nx.draw_networkx_edges(combo_sub, combo_pos, alpha=0.08, ax=axes[0])
+        sc0 = axes[0].scatter(
+            [combo_pos[n][0] for n in node_list_final],
+            [combo_pos[n][1] for n in node_list_final],
+            c=mu_f, cmap="RdYlGn", s=35, edgecolors="k", linewidths=0.2,
+        )
+        plt.colorbar(sc0, ax=axes[0], shrink=0.8)
+        axes[0].set_title("GP Posterior Mean (standardised)")
+
+        nx.draw_networkx_edges(combo_sub, combo_pos, alpha=0.08, ax=axes[1])
+        sc1 = axes[1].scatter(
+            [combo_pos[n][0] for n in node_list_final],
+            [combo_pos[n][1] for n in node_list_final],
+            c=sigma_f, cmap="YlOrRd", s=35, edgecolors="k", linewidths=0.2,
+        )
+        plt.colorbar(sc1, ax=axes[1], shrink=0.8)
+        axes[1].set_title("GP Posterior Std Dev (uncertainty)")
+
+        fig.suptitle("GP Surrogate over Combo-Subgraph",
+                     fontsize=13, fontweight="bold")
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        fig.savefig(os.path.join(args.out_dir, "4_gp_surface.png"), dpi=150)
+        plt.close(fig)
+        print(f"Saved: {args.out_dir}/4_gp_surface.png")
+
+    # ---- (e) Location selection frequency heatmap ----
+    fig, ax = plt.subplots(figsize=(10, 10))
+    location_freq = np.zeros(N)
+    for combo, _ in observations:
+        for idx in combo:
+            if idx < N:
+                location_freq[idx] += 1
+    edge_lines = [[emb_2d[u], emb_2d[v]] for u, v in base_graph.edges()]
+    lc = LineCollection(edge_lines, colors="lightgrey", linewidths=0.4,
+                        alpha=0.4, zorder=1)
+    ax.add_collection(lc)
+    sc = ax.scatter(
+        emb_2d[:, 0], emb_2d[:, 1],
+        c=location_freq, cmap="hot_r", s=70, edgecolors="k",
+        linewidths=0.4, zorder=2,
+    )
+    plt.colorbar(sc, ax=ax, label="Times selected across BO iterations")
+    best_pts_2d = emb_2d[list(best_combo)]
+    ax.scatter(best_pts_2d[:, 0], best_pts_2d[:, 1], s=160,
+               facecolors="none", edgecolors="lime", linewidths=2,
+               zorder=4, label="Best subset")
+    ax.set_xlabel(f"PC1 ({pca.explained_variance_ratio_[0]:.1%})")
+    ax.set_ylabel(f"PC2 ({pca.explained_variance_ratio_[1]:.1%})")
+    ax.set_title("Location Selection Frequency across BO Iterations")
+    ax.legend(loc="upper right")
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    fig.savefig(os.path.join(args.out_dir, "5_location_frequency.png"), dpi=150)
+    plt.close(fig)
+    print(f"Saved: {args.out_dir}/5_location_frequency.png")
+
+    # ---- (f) Base graph degree distribution ----
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    degrees = [d for _, d in base_graph.degree()]
+    axes[0].hist(degrees, bins=30, color="steelblue", edgecolor="k", alpha=0.8)
+    axes[0].axvline(np.mean(degrees), color="red", linestyle="--",
+                    label=f"mean={np.mean(degrees):.1f}")
+    axes[0].set_xlabel("Degree")
+    axes[0].set_ylabel("Count")
+    axes[0].set_title("Base Graph Degree Distribution")
+    axes[0].legend()
+    sc2 = axes[1].scatter(
+        emb_2d[:, 0], emb_2d[:, 1],
+        c=degrees, cmap="viridis", s=50, edgecolors="k", linewidths=0.3,
+    )
+    plt.colorbar(sc2, ax=axes[1], label="Node degree")
+    axes[1].set_xlabel("PC1")
+    axes[1].set_ylabel("PC2")
+    axes[1].set_title("Degree by Location (PCA space)")
+    axes[1].set_aspect("equal")
+    fig.tight_layout()
+    fig.savefig(os.path.join(args.out_dir, "6_degree_distribution.png"), dpi=150)
+    plt.close(fig)
+    print(f"Saved: {args.out_dir}/6_degree_distribution.png")
+
+    print(f"\nAll 6 plots saved to: {args.out_dir}/")
