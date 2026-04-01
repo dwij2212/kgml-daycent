@@ -9,7 +9,7 @@ driver+response time-series.  Training uses three loss terms:
 3. Contrastive loss     (NT-Xent / SimCLR on same-point, different-year pairs)
 
 Usage:
-    python train_inverse.py --config configs/inverse_1.yaml
+    python train_inverse.py --config configs/inverse/inverse_1.yaml
 """
 import argparse
 import os

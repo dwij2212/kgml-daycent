@@ -29,7 +29,7 @@ Usage examples
   python run_selection_experiment.py \\
       --base-config configs/selection_base.yaml \\
       --strategy lcmd --step-size 25 --max-points 150 --seed 42 \\
-      --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/inverse_1/eval
 """
 import argparse
 import copy
@@ -554,18 +554,18 @@ def run_sweep(args):
 
     # ------------------------------------------------------------------ #
     # Load raw data ONCE — all incremental steps share these DataFrames   #
+    # Use all pool points as train so weather data for every candidate is loaded.
     # ------------------------------------------------------------------ #
     from utils.config import ExperimentConfig
     from data.preprocessing import load_raw_data
-    # Build a temporary ExperimentConfig just to call load_raw_data
-    _tmp_config = build_experiment_config(base_dict, [], "tmp_raw_load")
+    _tmp_config = build_experiment_config(base_dict, full_pool, "tmp_raw_load")
     raw_data = load_raw_data(_tmp_config)
 
     # ------------------------------------------------------------------ #
     # Shared initial points (optional)                                    #
     # ------------------------------------------------------------------ #
     sweep_dir = os.path.join(
-        "/users/6/mehta423/projects/daycent/output/selection",
+        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
         experiment_name,
         args.strategy,
         f"sweep_s{args.seed}",

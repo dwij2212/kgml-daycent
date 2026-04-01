@@ -24,7 +24,7 @@
 #   bash   scripts/selection/run_bo_experiment.sh --skip-train  # dry-run
 # ============================================================
 
-cd /users/6/mehta423/projects/daycent/lib
+cd /projects/standard/kumarv/shared/dwij/daycent/lib
 
 # Activate environment
 source ~/anaconda3/etc/profile.d/conda.sh
@@ -32,16 +32,33 @@ conda activate wstatt
 
 EXTRA_ARGS="$@"
 
-python run_bo_experiment.py \
-    --base-config configs/selection/selection_base.yaml \
-    --n-points 200 \
-    --n-iterations 50 \
-    --seed 42 \
-    --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval \
-    --experiment-name exp5_bo \
-    --score-metric yield_r2 \
-    --Q 200 \
-    --max-radius 3 \
-    --epsilon-factor 0.3 \
-    --fail-tol 20 \
-    $EXTRA_ARGS
+# python run_bo_experiment.py \
+#     --base-config configs/selection/selection_base.yaml \
+#     --n-points 200 \
+#     --n-iterations 50 \
+#     --seed 42 \
+#     --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+#     --experiment-name exp5_bo \
+#     --score-metric yield_r2 \
+#     --Q 400 \
+#     --max-radius 5 \
+#     --epsilon-factor 0.3 \
+#     --fail-tol 20 \
+#     $EXTRA_ARGS
+
+
+for N_POINTS in $(seq 5 5 50); do
+    python run_bo_experiment.py \
+        --base-config configs/selection/selection_base.yaml \
+        --n-points "$N_POINTS" \
+        --n-iterations 10 \
+        --seed 42 \
+        --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+        --experiment-name exp5_bo \
+        --score-metric yield_r2 \
+        --Q 400 \
+        --max-radius 5 \
+        --epsilon-factor 0.3 \
+        --fail-tol 20 \
+        $EXTRA_ARGS
+done

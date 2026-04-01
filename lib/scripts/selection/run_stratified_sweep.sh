@@ -21,7 +21,7 @@
 #   bash scripts/run_stratified_sweep.sh --feature-groups spatial soil som
 # ============================================================
 
-cd /users/6/mehta423/projects/daycent/lib
+cd /projects/standard/kumarv/shared/dwij/daycent/lib
 
 # Activate environment
 source ~/anaconda3/etc/profile.d/conda.sh

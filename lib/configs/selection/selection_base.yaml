@@ -73,7 +73,7 @@ model:
 training:
   batch_size: 512
   epochs: 100
-  device: cuda
+  device: cuda:1
   somsc_loss_weight: 1.0
   yield_loss_weight: 1.0
   grad_clip_norm: 5.0

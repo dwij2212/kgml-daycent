@@ -18,7 +18,13 @@ Usage
   python run_bo_experiment.py \\
       --base-config configs/selection/selection_base.yaml \\
       --n-points 50 --n-iterations 50 --seed 42 \\
-      --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval \\
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/inverse_1/eval \\
+      --experiment-name exp5_bo --score-metric yield_r2
+
+    python run_bo_experiment.py \
+      --base-config configs/selection/selection_base.yaml \
+      --n-points 100 --n-iterations 50 --seed 42 \
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
       --experiment-name exp5_bo --score-metric yield_r2
 """
 import argparse
@@ -62,7 +68,8 @@ def run_bo_loop(args):
     print(f"Pool size: {len(pool_points)}")
 
     # ---- Load raw data ONCE — reused across all BO iterations ----
-    _tmp_config = build_experiment_config(base_dict, [], "tmp_raw_load")
+    # Use all pool points as train so weather data for every candidate is loaded.
+    _tmp_config = build_experiment_config(base_dict, pool_points, "tmp_raw_load")
     raw_data = load_raw_data(_tmp_config)
 
     # ---- Instantiate BO strategy ----
@@ -81,7 +88,7 @@ def run_bo_loop(args):
 
     # ---- Output directory ----
     out_dir = os.path.join(
-        "/users/6/mehta423/projects/daycent/output/selection",
+        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
         args.experiment_name,
         "bo_graph",
         f"sweep_s{args.seed}",
