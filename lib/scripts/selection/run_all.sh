@@ -21,32 +21,32 @@
 #   bash scripts/run_random_sweep.sh --skip-train  # eval only
 # ============================================================
 
-# python run_ensemble_experiment.py \
-#       --base-config configs/selection/selection_base.yaml \
-#       --strategy random --step-size 50 --max-points 300 \
-#       --seed 42 \
-#       --ensemble-seeds 42 123 456 789 1024 \
-#       --experiment-name exp5_random
-
-# python run_ensemble_experiment.py \
-#       --base-config configs/selection/selection_base.yaml \
-#       --strategy stratified --step-size 50 --max-points 300 \
-#       --seed 42 \
-#       --ensemble-seeds 42 123 456 789 1024 \
-#       --experiment-name exp5_stratified
+python run_ensemble_experiment.py \
+      --base-config configs/selection/selection_base.yaml \
+      --strategy random --step-size 5 --max-points 50 \
+      --seed 42 \
+      --ensemble-seeds 42 123 456 789 1024 \
+      --experiment-name exp5_random
 
 python run_ensemble_experiment.py \
       --base-config configs/selection/selection_base.yaml \
-      --strategy lcmd --step-size 50 --max-points 300 \
+      --strategy stratified --step-size 5 --max-points 50 \
       --seed 42 \
-      --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval \
+      --ensemble-seeds 42 123 456 789 1024 \
+      --experiment-name exp5_stratified
+
+python run_ensemble_experiment.py \
+      --base-config configs/selection/selection_base.yaml \
+      --strategy lcmd --step-size 5 --max-points 50 \
+      --seed 42 \
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
       --ensemble-seeds 42 123 456 789 1024 \
       --experiment-name exp5_lcmd
 
-# python run_ensemble_experiment.py \
-#       --base-config configs/selection/selection_base.yaml \
-#       --strategy maxdist --step-size 50 --max-points 300 \
-#       --seed 42 \
-#       --embedding-path /users/6/mehta423/projects/daycent/output/inverse_1/eval \
-#       --ensemble-seeds 42 123 456 789 1024 \
-#       --experiment-name exp5_mcdist
+python run_ensemble_experiment.py \
+      --base-config configs/selection/selection_base.yaml \
+      --strategy maxdist --step-size 5 --max-points 50 \
+      --seed 42 \
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+      --ensemble-seeds 42 123 456 789 1024 \
+      --experiment-name exp5_mcdist
