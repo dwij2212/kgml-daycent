@@ -71,6 +71,9 @@ class NLinearSimple(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, 1)
         )
+
+        nn.init.zeros_(self.somsc_head[-1].weight)
+        nn.init.zeros_(self.somsc_head[-1].bias)
     
     def forward(self, batch):
         seq = batch["sequence"]             # (B, 365, F)

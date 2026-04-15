@@ -99,14 +99,18 @@ def train_epoch(model, train_loader, optimizer, scheduler, device, config,
         
         # Compute losses
         losses = compute_losses(outputs, batch)
+        somsc_task_loss = (
+            config.training.somsc_abs_loss_weight * losses['somsc_abs_loss']
+            + config.training.somsc_delta_loss_weight * losses['somsc_delta_loss']
+        )
         
         # Combine losses
         if mtl_loss is not None:
-            loss = mtl_loss(losses['somsc_loss'], losses['yield_loss'])
+            loss = mtl_loss(somsc_task_loss, losses['yield_loss'])
         else:
             alpha = config.training.somsc_loss_weight
             beta = config.training.yield_loss_weight
-            loss = alpha * losses['somsc_loss'] + beta * losses['yield_loss']
+            loss = alpha * somsc_task_loss + beta * losses['yield_loss']
         
         loss.backward()
         
@@ -234,10 +238,23 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False,
         
         # Validate
         if val_loader:
-            val_somsc_loss, val_yield_loss = evaluate(model, val_loader, device)
-            val_total_loss = config.training.somsc_loss_weight * val_somsc_loss + config.training.yield_loss_weight * val_yield_loss
+            val_metrics = evaluate(
+                model,
+                val_loader,
+                device,
+                somsc_abs_weight=config.training.somsc_abs_loss_weight,
+                somsc_delta_weight=config.training.somsc_delta_loss_weight,
+            )
+            val_somsc_abs_loss = val_metrics['somsc_abs_loss']
+            val_somsc_delta_loss = val_metrics['somsc_delta_loss']
+            val_somsc_loss = val_metrics['somsc_loss']
+            val_yield_loss = val_metrics['yield_loss']
+            val_total_loss = (
+                config.training.somsc_loss_weight * val_somsc_loss
+                + config.training.yield_loss_weight * val_yield_loss
+            )
         else:
-            val_somsc_loss = val_yield_loss = val_total_loss = 0.0
+            val_somsc_abs_loss = val_somsc_delta_loss = val_somsc_loss = val_yield_loss = val_total_loss = 0.0
         
         if scheduler and not step_scheduler_per_batch:
             scheduler.step(val_total_loss if val_loader else train_loss)
@@ -247,12 +264,16 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False,
         print(f"Epoch {epoch+1}/{config.training.epochs} | LR: {current_lr:.2e}")
         print(f"  Train Loss: {train_loss:.4f}")
         if val_loader:
-            print(f"  Val Loss:   {val_total_loss:.4f} (SOMSC: {val_somsc_loss:.4f}, Yield: {val_yield_loss:.4f})")
+            print(
+                f"  Val Loss:   {val_total_loss:.4f} "
+                f"(SOMSC: {val_somsc_loss:.4f} | abs: {val_somsc_abs_loss:.4f}, "
+                f"delta: {val_somsc_delta_loss:.4f}; Yield: {val_yield_loss:.4f})"
+            )
         
-        # Save best model
+        # Save best model using the same objective the optimizer/scheduler sees.
         if val_loader:
             saved = checkpoint_manager.save(
-                value=val_yield_loss,
+                value=val_total_loss,
                 epoch=epoch,
                 extra_state={
                     'optimizer_state_dict': optimizer.state_dict(),
@@ -261,7 +282,7 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False,
             )
             if saved:
                 counter = 0
-                print(f"  ✓ Saved best model (val_yield_loss: {val_yield_loss:.4f})")
+                print(f"  ✓ Saved best model (val_total_loss: {val_total_loss:.4f})")
             else:
                 counter += 1
 
@@ -273,6 +294,8 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False,
         }
         if val_loader:
             log_dict.update({
+                "val_somsc_abs_loss": val_somsc_abs_loss,
+                "val_somsc_delta_loss": val_somsc_delta_loss,
                 "val_somsc_loss": val_somsc_loss,
                 "val_yield_loss": val_yield_loss,
                 "val_total_loss": val_total_loss,
@@ -291,10 +314,22 @@ def train(config: ExperimentConfig, skip_data_prep: bool = False,
         # Load best model for final evaluation
         checkpoint_manager.load_best()
         
-        test_somsc_loss, test_yield_loss = evaluate(model, test_loader, device)
-        print(f"  Test SOMSC Loss: {test_somsc_loss:.4f}")
-        print(f"  Test Yield Loss: {test_yield_loss:.4f}")
-        print(f"  Test Total Loss: {test_somsc_loss + test_yield_loss:.4f}")
+        test_metrics = evaluate(
+            model,
+            test_loader,
+            device,
+            somsc_abs_weight=config.training.somsc_abs_loss_weight,
+            somsc_delta_weight=config.training.somsc_delta_loss_weight,
+        )
+        test_total_loss = (
+            config.training.somsc_loss_weight * test_metrics['somsc_loss']
+            + config.training.yield_loss_weight * test_metrics['yield_loss']
+        )
+        print(f"  Test SOMSC Loss: {test_metrics['somsc_loss']:.4f}")
+        print(f"    absolute:      {test_metrics['somsc_abs_loss']:.4f}")
+        print(f"    delta:         {test_metrics['somsc_delta_loss']:.4f}")
+        print(f"  Test Yield Loss: {test_metrics['yield_loss']:.4f}")
+        print(f"  Test Total Loss: {test_total_loss:.4f}")
     
     wandb_logger.finish()
     

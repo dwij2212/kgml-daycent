@@ -53,11 +53,9 @@ class DayCentModel(nn.Module):
     def __init__(self, input_dim, init_dim, year_dim, hidden_dim=128, latent_dim=32, lstm_layers=2, **kwargs):
         super().__init__()
 
-        # for previous somsc state
-        self.state_proj = nn.Linear(1, latent_dim)
-
-        # project init conditions + year encoding → latent feature
-        self.init_proj = nn.Linear(init_dim + year_dim, latent_dim)
+        # Project static context, including the previous year's terminal SOMSC.
+        # SOMSC is a stock variable, so this state is the dominant anchor.
+        self.init_proj = nn.Linear(init_dim + year_dim + 1, latent_dim)
 
         # project daily inputs → latent feature
         self.daily_proj = nn.Linear(input_dim, latent_dim)
@@ -76,29 +74,42 @@ class DayCentModel(nn.Module):
         ])
         
         self.somsc_heads = nn.ModuleList([
-            nn.Linear(hidden_dim, 1) for _ in range(12)
+            nn.Sequential(
+                nn.Linear(hidden_dim + 1, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Linear(hidden_dim, 1),
+            )
+            for _ in range(12)
         ])
         
         # Yield prediction
         self.yield_attn = AttentionPooling(hidden_dim, hidden_dim)
         self.yield_head = nn.Linear(hidden_dim, 1)
 
+        self._init_somsc_heads()
+
+    def _init_somsc_heads(self):
+        # Start exactly at the copy-previous-state baseline so training only
+        # has to learn meaningful corrections to the carbon stock dynamics.
+        for head in self.somsc_heads:
+            nn.init.zeros_(head[-1].weight)
+            nn.init.zeros_(head[-1].bias)
+
     def forward(self, batch):
         seq = batch["sequence"]             # (B, 365, F)
         init_cond = batch["init_cond"]      # (B, I)
-        # make init cond 0 for ablation
-        # init_cond = torch.zeros_like(init_cond)
         year_enc = batch["year_enc"]        # (B, Y)
         harvest_mask = batch["harvest_mask"]# (B, 365)
         prev_somsc = batch["prev_somsc_state"].unsqueeze(-1)  # (B, 1)
 
-        # state_latent = self.state_proj(prev_somsc)  # (B, latent)
-
         # ---- daily representation ----
         daily_latent = self.daily_proj(seq)  # (B, 365, latent)
         
-        # ---- global representation (init+year) ----
-        global_latent = self.init_proj(torch.cat([init_cond, year_enc], dim=-1))  # (B, latent)
+        # ---- global representation (init + year + previous SOMSC state) ----
+        global_latent = self.init_proj(
+            torch.cat([init_cond, year_enc, prev_somsc], dim=-1)
+        )  # (B, latent)
 
         global_latent = global_latent.unsqueeze(1).repeat(1, seq.size(1), 1)      # (B, 365, latent)
 
@@ -108,24 +119,28 @@ class DayCentModel(nn.Module):
 
         # ---- SOMSC head (per month) ----
         somsc_preds = []
+        somsc_deltas = []
         somsc_attns = []
         ranges = month_day_ranges()
+        current_val = prev_somsc.squeeze(-1)
 
         for m, (start, end) in enumerate(ranges):
             # Create mask: can see days [start, end)
             mask = torch.zeros(h.shape[:2], dtype=torch.bool, device=h.device)
             mask[:, :end] = True  # Clearer syntax
             
-            # Use month-specific attention and head
+            # Use month-specific attention and head to predict the monthly delta.
             pooled, attn = self.somsc_attns[m](h, mask=mask)
-            pred = self.somsc_heads[m](pooled).squeeze(-1) # (B, )
-            
-            # The absolute prediction is accumulation of deltas
-            # current_val = current_val + delta
-            somsc_preds.append(pred)
+            head_input = torch.cat([pooled, current_val.unsqueeze(-1)], dim=-1)
+            delta = self.somsc_heads[m](head_input).squeeze(-1)  # (B,)
+            current_val = current_val + delta
+
+            somsc_preds.append(current_val)
+            somsc_deltas.append(delta)
             somsc_attns.append(attn)
         
         somsc_preds = torch.stack(somsc_preds, dim=1).squeeze(-1)  # (B, 12)
+        somsc_deltas = torch.stack(somsc_deltas, dim=1).squeeze(-1)  # (B, 12)
         
         # ---- Yield head ----
         yield_repr, yield_attn = self.yield_attn(h, mask=harvest_mask)
@@ -133,6 +148,7 @@ class DayCentModel(nn.Module):
 
         return {
             "somsc_pred": somsc_preds,
+            "somsc_delta_pred": somsc_deltas,
             "yield_pred": yield_pred,
             "somsc_attn": somsc_attns,
             "yield_attn": yield_attn

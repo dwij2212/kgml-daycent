@@ -176,7 +176,7 @@ class DayCentModelV2(nn.Module):
         # ═══════════════════════════════════════════════════
         # 2. CONTEXT ENCODER — init cond + year + prev state
         # ═══════════════════════════════════════════════════
-        context_input_dim = init_dim + year_dim  # +1 for prev_somsc
+        context_input_dim = init_dim + year_dim + 1
         self.context_encoder = nn.Sequential(
             nn.Linear(context_input_dim, latent_dim),
             nn.LayerNorm(latent_dim),
@@ -200,12 +200,12 @@ class DayCentModelV2(nn.Module):
             hidden_size=hidden_dim,
             num_layers=lstm_layers,
             batch_first=True,
-            bidirectional=False,
+            bidirectional=True,
             dropout=dropout if lstm_layers > 1 else 0.0,
         )
         # BiLSTM outputs 2*hidden_dim; project back
         self.lstm_proj = nn.Sequential(
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(hidden_dim * 2, hidden_dim),
             nn.LayerNorm(hidden_dim),
         )
         
@@ -222,7 +222,7 @@ class DayCentModelV2(nn.Module):
         # Shared SOMSC MLP head (takes pooled repr + month embedding)
         # Predicts a DELTA (change from previous month)
         self.somsc_head = nn.Sequential(
-            nn.Linear(hidden_dim + month_emb_dim, hidden_dim),
+            nn.Linear(hidden_dim + month_emb_dim + 1, hidden_dim),
             nn.LayerNorm(hidden_dim),
             nn.GELU(),
             nn.Dropout(dropout),
@@ -260,6 +260,9 @@ class DayCentModelV2(nn.Module):
                 # Skip FiLM layers (they have custom init)
                 if 'film' not in name:
                     nn.init.xavier_uniform_(param)
+
+        nn.init.zeros_(self.somsc_head[-1].weight)
+        nn.init.zeros_(self.somsc_head[-1].bias)
     
     def forward(self, batch):
         seq = batch["sequence"]              # (B, 365, F)
@@ -275,7 +278,7 @@ class DayCentModelV2(nn.Module):
         daily_latent = self.daily_encoder(seq)  # (B, 365, latent)
         
         # ---- 2. Encode static context ----
-        context_vec = torch.cat([init_cond, year_enc], dim=-1)
+        context_vec = torch.cat([init_cond, year_enc, prev_somsc], dim=-1)
         context_latent = self.context_encoder(context_vec)  # (B, latent)
         
         # ---- 3. FiLM conditioning: modulate daily with context ----
@@ -287,6 +290,7 @@ class DayCentModelV2(nn.Module):
         
         # ---- 5. SOMSC prediction (residual delta chain) ----
         somsc_preds = []
+        somsc_deltas = []
         somsc_attns = []
         ranges = month_day_ranges()
         
@@ -306,16 +310,18 @@ class DayCentModelV2(nn.Module):
             
             # Concatenate month embedding (broadcast across batch)
             m_emb = month_embs[m].unsqueeze(0).expand(B, -1)  # (B, month_emb_dim)
-            head_input = torch.cat([pooled, m_emb], dim=-1)    # (B, hidden + month_emb_dim)
+            head_input = torch.cat([pooled, m_emb, current_val.unsqueeze(-1)], dim=-1)
             
             # Predict delta and accumulate
             delta = self.somsc_head(head_input).squeeze(-1)    # (B,)
             current_val = current_val + delta
             
             somsc_preds.append(current_val)
+            somsc_deltas.append(delta)
             somsc_attns.append(attn)
         
         somsc_preds = torch.stack(somsc_preds, dim=1)  # (B, 12)
+        somsc_deltas = torch.stack(somsc_deltas, dim=1)  # (B, 12)
         
         # ---- 6. Yield prediction ----
         yield_repr, yield_attn = self.yield_attn(h, mask=harvest_mask)
@@ -323,6 +329,7 @@ class DayCentModelV2(nn.Module):
         
         return {
             "somsc_pred": somsc_preds,
+            "somsc_delta_pred": somsc_deltas,
             "yield_pred": yield_pred,
             "somsc_attn": somsc_attns,
             "yield_attn": yield_attn,

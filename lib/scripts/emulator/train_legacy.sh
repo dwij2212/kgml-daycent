@@ -1,5 +1,5 @@
 # !/bin/bash
 
-rm /users/6/mehta423/projects/daycent/data/v2.0/scaler_Y.pkl
+rm /projects/standard/kumarv/shared/dwij/daycent/data/v2.0/scaler_Y.pkl
 
 python train_emulator.py --config configs/emulator/legacy_experiment.yaml

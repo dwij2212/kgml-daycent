@@ -87,6 +87,30 @@ def compute_masked_mse(pred: torch.Tensor, target: torch.Tensor,
     return torch.tensor(0.0, device=pred.device)
 
 
+def compute_monthly_deltas(values: torch.Tensor, prev_state: torch.Tensor) -> torch.Tensor:
+    """
+    Convert monthly absolute SOMSC values into month-to-month deltas.
+
+    Args:
+        values: (B, 12) absolute monthly SOMSC values
+        prev_state: (B,) previous year's terminal SOMSC
+
+    Returns:
+        (B, 12) month-to-month deltas where month 0 is relative to prev_state
+    """
+    first_delta = values[:, :1] - prev_state.unsqueeze(-1)
+    later_deltas = values[:, 1:] - values[:, :-1]
+    return torch.cat([first_delta, later_deltas], dim=1)
+
+
+def compute_masked_std(values: torch.Tensor, mask: torch.Tensor, min_std: float = 1e-3) -> torch.Tensor:
+    """Compute the standard deviation over masked values with a safe floor."""
+    valid = values[mask > 0]
+    if valid.numel() <= 1:
+        return torch.tensor(1.0, device=values.device, dtype=values.dtype)
+    return valid.std(unbiased=False).clamp(min=min_std)
+
+
 def compute_losses(outputs: Dict[str, torch.Tensor], 
                    batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
     """
@@ -103,7 +127,22 @@ def compute_losses(outputs: Dict[str, torch.Tensor],
     somsc_pred = outputs["somsc_pred"]
     somsc_target = batch["somsc"]
     somsc_mask = batch["somsc_mask"]
-    somsc_loss = compute_masked_mse(somsc_pred, somsc_target, somsc_mask)
+    somsc_abs_loss = compute_masked_mse(somsc_pred, somsc_target, somsc_mask)
+
+    somsc_delta_pred = outputs.get("somsc_delta_pred")
+    if somsc_delta_pred is None:
+        somsc_delta_pred = compute_monthly_deltas(
+            somsc_pred,
+            batch["prev_somsc_state"],
+        )
+    somsc_delta_target = batch["somsc_delta"]
+    somsc_delta_mask = batch["somsc_delta_mask"]
+    somsc_delta_scale = compute_masked_std(somsc_delta_target, somsc_delta_mask)
+    somsc_delta_loss = compute_masked_mse(
+        somsc_delta_pred / somsc_delta_scale,
+        somsc_delta_target / somsc_delta_scale,
+        somsc_delta_mask,
+    )
     
     # Yield loss
     yield_pred = outputs["yield_pred"]
@@ -112,7 +151,10 @@ def compute_losses(outputs: Dict[str, torch.Tensor],
     yield_loss = compute_masked_mse(yield_pred, yield_target, yield_mask)
     
     return {
-        'somsc_loss': somsc_loss,
+        'somsc_loss': somsc_abs_loss,
+        'somsc_abs_loss': somsc_abs_loss,
+        'somsc_delta_loss': somsc_delta_loss,
+        'somsc_delta_scale': somsc_delta_scale.detach(),
         'yield_loss': yield_loss
     }
 
