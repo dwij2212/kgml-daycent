@@ -1,0 +1,96 @@
+# ============================================================
+# Base configuration for point-selection experiments.
+#
+# Training points are NOT listed here — they are injected
+# programmatically by run_selection_experiment.py via the
+# chosen selection strategy.
+#
+# Test / val points and all other settings are fixed so that
+# every selection experiment is comparable.
+#
+# Pool and val/test points are stored externally as CSV files
+# in configs/point_sets/ and resolved at runtime.
+# ============================================================
+experiment_id: selection   # will be overridden per-run
+description: "Point selection experiment"
+
+data:
+  base_dir: /projects/standard/kumarv/shared/daycent/new_data
+  use_synthetic: true
+  max_workers: 4
+  legacy_dir_structure: false
+  experiment_number: 5
+
+  # The FULL pool of candidate training points (from experiment 5).
+  # The selection strategy picks a subset of these.
+  # Resolved at runtime from CSV by resolve_point_lists().
+  pool_points:
+    source: csv
+    path: point_sets/pool_exp6_417.csv   # relative to this config file's directory
+
+  # Train split: points will be overridden by strategy, other fields stay.
+  train:
+    scenario_range:
+      start: 1
+      end: 10
+    points: []   # <-- replaced at runtime by the strategy
+    year_range:
+      start: 2002
+      end: 2020
+
+  # Validation: same scenarios, same (test) points, overlapping years
+  val:
+    scenario_range:
+      start: 1
+      end: 10
+    points:
+      source: csv
+      path: point_sets/pool_exp6_417.csv   # relative to this config file's directory
+    year_range:
+      start: 2015
+      end: 2020
+
+  # Test: held-out scenarios, same (test) points
+  test:
+    scenarios:
+      - 11
+      - 12
+      - 13
+    points:
+      source: csv
+      path: point_sets/test_exp6_83.csv   # relative to this config file's directory
+    year_range:
+      start: 2020
+      end: 2024
+
+model:
+  model_type: daycent
+  hidden_dim: 64
+  latent_dim: 32
+  lstm_layers: 1
+  dropout: 0.1
+
+training:
+  batch_size: 512
+  epochs: 100
+  device: cuda:2
+  somsc_loss_weight: 1.0
+  yield_loss_weight: 1.0
+  grad_clip_norm: 5.0
+  optimizer:
+    name: adam
+    lr: 0.001
+    weight_decay: 0.01
+  scheduler:
+    name: reduce_on_plateau
+    patience: 10
+    factor: 0.5
+  random_seed: 42
+  num_workers: 2
+
+wandb:
+  enabled: false
+  project: daycent-selection
+  name: null      # set per-run
+  tags:
+    - selection

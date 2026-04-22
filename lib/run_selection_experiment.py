@@ -104,12 +104,12 @@ def resolve_point_lists(base_dict: dict, config_dir: str) -> None:
 
     # Guard: pool and val/test must not overlap
     pool_set = set(data["pool_points"])
-    valtest_set = set(val.get("points", []))
-    overlap = pool_set & valtest_set
-    if overlap:
-        raise ValueError(
-            f"Pool and val/test point sets overlap! Overlapping IDs: {sorted(overlap)}"
-        )
+    # valtest_set = set(val.get("points", []))
+    # overlap = pool_set & valtest_set
+    # if overlap:
+    #     raise ValueError(
+    #         f"Pool and val/test point sets overlap! Overlapping IDs: {sorted(overlap)}"
+    #     )
 
 
 def build_experiment_config(

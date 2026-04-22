@@ -50,6 +50,7 @@ from run_selection_experiment import (
     train_eval_single,
 )
 from selection import get_strategy, SelectionResult
+from selection.visualize import plot_selected_points, plot_feature_coverage
 from data.preprocessing import load_raw_data
 
 
@@ -65,6 +66,7 @@ def run_bo_loop(args):
     metadata = load_metadata(base_dict)
 
     pool_points = [str(p) for p in base_dict["data"]["pool_points"]]
+    test_points = [str(p) for p in base_dict["data"]["test"]["points"]]
     print(f"Pool size: {len(pool_points)}")
 
     # ---- Load raw data ONCE — reused across all BO iterations ----
@@ -114,6 +116,30 @@ def run_bo_loop(args):
         )
 
         if args.skip_train:
+            # Save selection output and plots even in dry-run mode.
+            run_cfg = build_experiment_config(base_dict, subset, run_tag)
+            run_dir = run_cfg.output_dir
+            sel_path = os.path.join(run_dir, "selection_result.json")
+            if not os.path.exists(sel_path):
+                result.save(sel_path)
+
+            if not args.skip_plots:
+                plot_selected_points(
+                    result=result,
+                    test_points=test_points,
+                    pool_points=pool_points,
+                    lookup_df=metadata["lookup_df"],
+                    save_path=os.path.join(run_dir, "selection_map.png"),
+                )
+                plt.close("all")
+                plot_feature_coverage(
+                    result=result,
+                    pool_points=pool_points,
+                    init_cond_df=metadata["init_cond_df"],
+                    save_path=os.path.join(run_dir, "feature_coverage.png"),
+                )
+                plt.close("all")
+
             # Dry-run: use random score for testing the BO loop
             import numpy as np
             score = float(np.random.RandomState(args.seed + i).uniform(0.5, 0.95))
@@ -130,7 +156,7 @@ def run_bo_loop(args):
                 selected_points=subset,
                 run_tag=run_tag,
                 result=result,
-                skip_plots=(i > 0),
+                skip_plots=args.skip_plots,
                 pool_points=pool_points,
                 metadata=metadata,
                 raw_data=raw_data,
@@ -288,6 +314,10 @@ def main():
     parser.add_argument(
         "--skip-train", action="store_true",
         help="Dry-run: skip training, use random scores (for testing BO loop).",
+    )
+    parser.add_argument(
+        "--skip-plots", action="store_true",
+        help="Skip selection visualisation plots.",
     )
 
     args = parser.parse_args()

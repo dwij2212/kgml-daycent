@@ -303,6 +303,71 @@ def plot_ensemble_comparison(df: pd.DataFrame, save_dir: str):
     plt.close(fig)
     print(f"Ensemble comparison plot saved → {out_path}")
 
+def filter_summaries(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep only the best bo_graph iteration rows and drop the rest.
+
+    For strategy == "bo_graph", rows are expected to have run tags like:
+        <experiment>/bo_graph/iter{i}_n{n_points}_s{seed}
+
+    We keep one row per (experiment prefix, seed, n_points), selected by:
+      1) highest yield_r2 (BO objective),
+      2) latest iteration index as tie-breaker.
+
+    Non-bo_graph rows are preserved as-is.
+    """
+    if df.empty or "strategy" not in df.columns:
+        return df
+
+    is_bo = df["strategy"].astype(str).eq("bo_graph")
+    if not is_bo.any():
+        return df
+
+    bo_df = df.loc[is_bo].copy()
+    non_bo_df = df.loc[~is_bo].copy()
+
+    required = {"run_tag", "n_points", "yield_r2"}
+    if not required.issubset(bo_df.columns):
+        return df
+
+    # Parse bo iteration metadata from run_tag.
+    # Example: exp6_bo/bo_graph/iter9_n50_s42
+    pat = r"^(?P<prefix>.*?/bo_graph)/iter(?P<iter>\d+)_n(?P<n>\d+)_s(?P<seed>\d+)$"
+    parsed = bo_df["run_tag"].astype(str).str.extract(pat)
+
+    parsed_mask = parsed["iter"].notna()
+    bo_unparsed = bo_df.loc[~parsed_mask].copy()
+    bo_parsed = bo_df.loc[parsed_mask].copy()
+
+    if bo_parsed.empty:
+        return df
+
+    bo_parsed["_bo_prefix"] = parsed.loc[parsed_mask, "prefix"].values
+    bo_parsed["_bo_iter"] = parsed.loc[parsed_mask, "iter"].astype(int).values
+    bo_parsed["_bo_seed"] = parsed.loc[parsed_mask, "seed"].astype(int).values
+    bo_parsed["_bo_n"] = pd.to_numeric(bo_parsed["n_points"], errors="coerce")
+    bo_parsed["_score"] = pd.to_numeric(bo_parsed["yield_r2"], errors="coerce")
+
+    # Highest score first; for ties choose the latest iteration.
+    bo_best = (
+        bo_parsed.sort_values(
+            by=["_bo_prefix", "_bo_seed", "_bo_n", "_score", "_bo_iter"],
+            ascending=[True, True, True, False, False],
+            kind="mergesort",
+        )
+        .groupby(["_bo_prefix", "_bo_seed", "_bo_n"], sort=False, as_index=False)
+        .head(1)
+    )
+
+    # Keep original columns only.
+    bo_best = bo_best[df.columns]
+    combined = pd.concat([non_bo_df, bo_best, bo_unparsed], ignore_index=True)
+
+    sort_cols = [c for c in ["strategy", "n_points", "run_tag"] if c in combined.columns]
+    if sort_cols:
+        combined = combined.sort_values(sort_cols, kind="mergesort")
+
+    return combined.reset_index(drop=True)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Compare selection runs.")
@@ -346,6 +411,8 @@ def main():
     if df.empty:
         print("No results found.")
         sys.exit(0)
+
+    df = filter_summaries(df)
 
     print("\n=== ALL RESULTS ===")
     print(df.to_string(index=False))
