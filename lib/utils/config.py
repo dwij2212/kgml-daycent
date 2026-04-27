@@ -199,7 +199,7 @@ class DataConfig:
 @dataclass
 class ModelConfig:
     """Configuration for model architecture."""
-    model_type: str = "transformer"  # Options: 'daycent', 'transformer'
+    model_type: str = "transformer"  # Options: 'daycent', 'transformer', 'yearly_somsc'
 
     # Transformer-specific hyperparameters
     d_model: int = 128

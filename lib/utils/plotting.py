@@ -43,6 +43,7 @@ def plot_timeseries(
     metrics: Optional[Dict[str, float]] = None,
     true_label: str = "True",
     pred_label: str = "Predicted",
+    x: Optional[np.ndarray] = None,
     save_path: Optional[str] = None,
 ) -> plt.Figure:
     """Single-panel true vs predicted time-series.
@@ -53,7 +54,7 @@ def plot_timeseries(
     metrics : optional dict of scalar metrics to append to title (e.g. r2, rmse)
     """
     fig, ax = plt.subplots(figsize=(10, 4))
-    t = np.arange(len(true))
+    t = np.asarray(x) if x is not None else np.arange(len(true))
     ax.plot(t, true, "o-", label=true_label, linewidth=2, markersize=5,
             color="#2E86AB", alpha=0.85)
     ax.plot(t, pred, "s--", label=pred_label, linewidth=2, markersize=5,

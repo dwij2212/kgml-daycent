@@ -7,7 +7,7 @@ arrays so they can be called without any PyTorch dependency.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, Hashable, List, Optional, Sequence
 
 import numpy as np
 
@@ -71,6 +71,82 @@ def compute_masked_metrics(
     """
     valid = mask.flatten().astype(bool)
     return compute_regression_metrics(true.flatten()[valid], pred.flatten()[valid])
+
+
+def compute_grouped_masked_metrics(
+    true: np.ndarray,
+    pred: np.ndarray,
+    mask: np.ndarray,
+    group_keys: Sequence[Hashable],
+) -> Dict[str, float]:
+    """Compute masked metrics per group, then average metrics across groups."""
+    true_arr = np.asarray(true)
+    pred_arr = np.asarray(pred)
+    mask_arr = np.asarray(mask)
+
+    assert true_arr.shape == pred_arr.shape, "true and pred must have the same shape"
+    assert true_arr.shape == mask_arr.shape, "mask must have the same shape as true/pred"
+
+    n_groups_expected = len(group_keys)
+    if n_groups_expected == 0:
+        return {
+            "mse": 0.0,
+            "rmse": 0.0,
+            "mae": 0.0,
+            "r2": 0.0,
+            "n_groups": 0,
+            "n_samples_total": 0,
+            "mean_samples_per_group": 0.0,
+        }
+
+    if true_arr.ndim == 0 or true_arr.shape[0] != n_groups_expected:
+        raise ValueError("group_keys must align with the first dimension of true/pred/mask")
+
+    true_rows = true_arr.reshape(n_groups_expected, -1)
+    pred_rows = pred_arr.reshape(n_groups_expected, -1)
+    mask_rows = mask_arr.reshape(n_groups_expected, -1).astype(bool)
+
+    grouped_indices: Dict[Hashable, List[int]] = {}
+    for idx, key in enumerate(group_keys):
+        grouped_indices.setdefault(key, []).append(idx)
+
+    per_group_metrics = []
+    samples_per_group = []
+
+    for indices in grouped_indices.values():
+        group_true = true_rows[indices].reshape(-1)
+        group_pred = pred_rows[indices].reshape(-1)
+        group_valid = mask_rows[indices].reshape(-1)
+        n_valid = int(group_valid.sum())
+
+        if n_valid == 0:
+            continue
+
+        per_group_metrics.append(
+            compute_regression_metrics(group_true[group_valid], group_pred[group_valid])
+        )
+        samples_per_group.append(n_valid)
+
+    if not per_group_metrics:
+        return {
+            "mse": 0.0,
+            "rmse": 0.0,
+            "mae": 0.0,
+            "r2": 0.0,
+            "n_groups": 0,
+            "n_samples_total": 0,
+            "mean_samples_per_group": 0.0,
+        }
+
+    return {
+        "mse": float(np.mean([m["mse"] for m in per_group_metrics])),
+        "rmse": float(np.mean([m["rmse"] for m in per_group_metrics])),
+        "mae": float(np.mean([m["mae"] for m in per_group_metrics])),
+        "r2": float(np.mean([m["r2"] for m in per_group_metrics])),
+        "n_groups": len(per_group_metrics),
+        "n_samples_total": int(np.sum(samples_per_group)),
+        "mean_samples_per_group": float(np.mean(samples_per_group)),
+    }
 
 
 # ---------------------------------------------------------------------------
