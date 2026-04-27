@@ -13,49 +13,48 @@
 #SBATCH --mail-type=ALL  
 #SBATCH --mail-user=mehta423@umn.edu
 
+for seed in $(seq 1 1 30); do
+      python run_ensemble_experiment.py \
+            --base-config configs/selection/selection_exp6.yaml \
+            --strategy random --step-size 30 --max-points 30 \
+            --seed "$seed" \
+            --ensemble-seeds 42 \
+            --experiment-name exp6_random
+done
+
 # python run_ensemble_experiment.py \
 #       --base-config configs/selection/selection_exp6.yaml \
-#       --strategy random --step-size 5 --max-points 50 \
+#       --strategy stratified --step-size 5 --max-points 50 \
 #       --seed 42 \
 #       --ensemble-seeds 42 123 456 789 1024 \
-#       --experiment-name exp6_random
+#       --experiment-name exp6_stratified
 
-python run_ensemble_experiment.py \
-      --base-config configs/selection/selection_exp6.yaml \
-      --strategy stratified --step-size 5 --max-points 50 \
-      --seed 42 \
-      --ensemble-seeds 42 123 456 789 1024 \
-      --experiment-name exp6_stratified
+# python run_ensemble_experiment.py \
+#       --base-config configs/selection/selection_exp6.yaml \
+#       --strategy lcmd --step-size 5 --max-points 50 \
+#       --seed 42 \
+#       --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+#       --ensemble-seeds 42 123 456 789 1024 \
+#       --experiment-name exp6_lcmd
 
-python run_ensemble_experiment.py \
+# python run_ensemble_experiment.py \
+#       --base-config configs/selection/selection_exp6.yaml \
+#       --strategy maxdist --step-size 5 --max-points 50 \
+#       --seed 42 \
+#       --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+#       --ensemble-seeds 42 123 456 789 1024 \
+#       --experiment-name exp6_maxdist
+
+python run_bo_experiment.py \
       --base-config configs/selection/selection_exp6.yaml \
-      --strategy lcmd --step-size 5 --max-points 50 \
+      --n-points 30 \
+      --n-iterations 30 \
       --seed 42 \
       --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
-      --ensemble-seeds 42 123 456 789 1024 \
-      --experiment-name exp6_lcmd
-
-python run_ensemble_experiment.py \
-      --base-config configs/selection/selection_exp6.yaml \
-      --strategy maxdist --step-size 5 --max-points 50 \
-      --seed 42 \
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
-      --ensemble-seeds 42 123 456 789 1024 \
-      --experiment-name exp6_maxdist
-
-
-# for N_POINTS in $(seq 5 5 50); do
-#     python run_bo_experiment.py \
-#         --base-config configs/selection/selection_exp6.yaml \
-#         --n-points "$N_POINTS" \
-#         --n-iterations 10 \
-#         --seed 42 \
-#         --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
-#         --experiment-name exp6_bo \
-#         --score-metric yield_r2 \
-#         --Q 400 \
-#         --max-radius 5 \
-#         --epsilon-factor 0.3 \
-#         --fail-tol 20 \
-#         $EXTRA_ARGS
-# done
+      --experiment-name exp6_bo \
+      --score-metric yield_r2 \
+      --Q 400 \
+      --max-radius 10 \
+      --epsilon-factor 0.3 \
+      --fail-tol 20 \
+      $EXTRA_ARGS

@@ -29,11 +29,17 @@ Usage
 """
 import argparse
 import copy
+import hashlib
 import json
 import os
 import sys
 import time
 from typing import Dict, Any, List
+
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    os.path.join("/tmp", f"matplotlib-{os.environ.get('USER', 'codex')}"),
+)
 
 import pandas as pd
 
@@ -52,6 +58,39 @@ from run_selection_experiment import (
 from selection import get_strategy, SelectionResult
 from selection.visualize import plot_selected_points, plot_feature_coverage
 from data.preprocessing import load_raw_data
+
+
+def subset_signature(points: List[str]) -> str:
+    """Stable short hash for a selected subset."""
+    payload = "\n".join(sorted(str(p) for p in points))
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def _run_label(args) -> str:
+    return (getattr(args, "run_label", None) or "").strip().strip("/")
+
+
+def _bo_run_prefix(args) -> str:
+    """Path-like run prefix under daycent/output/selection."""
+    parts = [args.experiment_name, "bo_graph"]
+    label = _run_label(args)
+    if label:
+        parts.append(label)
+    return "/".join(parts)
+
+
+def bo_output_dir(args) -> str:
+    """Directory containing aggregate files for one BO loop."""
+    parts = [
+        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
+        args.experiment_name,
+        "bo_graph",
+    ]
+    label = _run_label(args)
+    if label:
+        parts.append(label)
+    parts.append(f"sweep_s{args.seed}")
+    return os.path.join(*parts)
 
 
 # =========================================================================== #
@@ -89,18 +128,20 @@ def run_bo_loop(args):
     )
 
     # ---- Output directory ----
-    out_dir = os.path.join(
-        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
-        args.experiment_name,
-        "bo_graph",
-        f"sweep_s{args.seed}",
-    )
+    run_label = _run_label(args)
+    run_prefix = _bo_run_prefix(args)
+    out_dir = bo_output_dir(args)
     os.makedirs(out_dir, exist_ok=True)
+
+    run_args_path = os.path.join(out_dir, "bo_run_args.json")
+    with open(run_args_path, "w") as f:
+        json.dump(vars(args), f, indent=2, default=str)
 
     # ---- BO loop ----
     all_results: List[Dict[str, Any]] = []
     best_score = -float("inf")
     best_subset = None
+    first_subset = None
 
     for i in range(args.n_iterations):
         print(f"\n{'='*80}")
@@ -110,10 +151,10 @@ def run_bo_loop(args):
         # Ask
         result = strategy.select(pool_points, metadata=metadata)
         subset = result.selected_points
+        if first_subset is None:
+            first_subset = list(subset)
 
-        run_tag = (
-            f"{args.experiment_name}/bo_graph/iter{i}_n{args.n_points}_s{args.seed}"
-        )
+        run_tag = f"{run_prefix}/iter{i}_n{args.n_points}_s{args.seed}"
 
         if args.skip_train:
             # Save selection output and plots even in dry-run mode.
@@ -176,9 +217,21 @@ def run_bo_loop(args):
             best_subset = subset
 
         row = {
+            "experiment_name": args.experiment_name,
+            "run_label": run_label,
+            "seed": args.seed,
+            "n_points": args.n_points,
+            "Q": args.Q,
+            "max_radius": args.max_radius,
+            "epsilon_factor": args.epsilon_factor,
+            "fail_tol": args.fail_tol,
+            "succ_tol": args.succ_tol,
+            "shrink_tol": args.shrink_tol,
             "iteration": i,
             "score": score,
             "best_score": best_score,
+            "subset_signature": subset_signature(subset),
+            "selected_points_json": json.dumps(sorted(str(p) for p in subset)),
             "ei_value": result.metadata.get("ei_value"),
             "gp_lengthscale": result.metadata.get("gp_lengthscale"),
             "gp_noise_var": result.metadata.get("gp_noise_var"),
@@ -207,9 +260,20 @@ def run_bo_loop(args):
         "best_score": best_score,
         "score_metric": args.score_metric,
         "best_subset": best_subset,
+        "first_subset": first_subset,
+        "first_subset_signature": (
+            subset_signature(first_subset) if first_subset is not None else None
+        ),
         "n_iterations": args.n_iterations,
         "n_points": args.n_points,
         "seed": args.seed,
+        "run_label": run_label,
+        "Q": args.Q,
+        "max_radius": args.max_radius,
+        "epsilon_factor": args.epsilon_factor,
+        "fail_tol": args.fail_tol,
+        "succ_tol": args.succ_tol,
+        "shrink_tol": args.shrink_tol,
     }
     best_path = os.path.join(out_dir, "best_subset.json")
     with open(best_path, "w") as f:
@@ -280,6 +344,13 @@ def main():
     parser.add_argument(
         "--experiment-name", type=str, default="exp5_bo",
         help="Top-level experiment folder name (default: exp5_bo).",
+    )
+    parser.add_argument(
+        "--run-label", type=str, default="",
+        help=(
+            "Optional subfolder under <experiment-name>/bo_graph. "
+            "Useful for hparam sweeps so runs do not overwrite one another."
+        ),
     )
     parser.add_argument(
         "--score-metric", type=str, default="yield_r2",

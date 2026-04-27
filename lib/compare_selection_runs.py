@@ -41,7 +41,6 @@ def collect_summaries(runs_dir: str) -> pd.DataFrame:
         rows.append(row)
     return pd.DataFrame(rows)
 
-
 def _row_from_ensemble_json(path: str) -> dict:
     """Build a stats row from a pre-aggregated ensemble_summary.json."""
     with open(path) as f:
