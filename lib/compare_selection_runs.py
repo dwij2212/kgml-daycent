@@ -2,9 +2,9 @@
 Compare selection experiment results across strategies and budget sizes.
 
 Usage:
-    python compare_selection_runs.py --runs-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection
+    python compare_selection_runs.py --runs-dir ../output/selection
     python compare_selection_runs.py --csv sweep_random.csv sweep_stratified.csv
-    python compare_selection_runs.py --ensembles --runs-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection
+    python compare_selection_runs.py --ensembles --runs-dir ../output/selection
 """
 import argparse
 import glob
@@ -17,6 +17,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+from utils.paths import selection_output_root
 
 
 def collect_summaries(runs_dir: str) -> pd.DataFrame:
@@ -371,7 +373,7 @@ def filter_summaries(df: pd.DataFrame) -> pd.DataFrame:
 def main():
     parser = argparse.ArgumentParser(description="Compare selection runs.")
     parser.add_argument("--runs-dir", type=str,
-                        default="/projects/standard/kumarv/shared/dwij/daycent/output/selection",
+                        default=selection_output_root(),
                         help="Root directory containing selection run outputs.")
     parser.add_argument("--csv", type=str, nargs="*",
                         help="Explicit CSV paths to merge (from sweep results).")

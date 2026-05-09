@@ -1,45 +1,49 @@
-#!/bin/bash
-
-#!/bin/bash -l
+#!/usr/bin/env bash
 #SBATCH --account=kumarv
-#SBATCH --job-name=random_sweep
-#SBATCH --output=logs/random_sweep_%j.out
-#SBATCH --error=logs/random_sweep_%j.err
+#SBATCH --job-name=random_stratified
+#SBATCH --output=logs/random_stratified_%j.out
+#SBATCH --error=logs/random_stratified_%j.err
 #SBATCH --time=18:00:00
 #SBATCH --partition=kgml03
 #SBATCH --gres=gpu:a100:1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=64G
-#SBATCH --mail-type=ALL  
+#SBATCH --mail-type=ALL
 #SBATCH --mail-user=mehta423@umn.edu
 
-# ============================================================
-# Run a budget sweep with the random strategy.
-#
-# Usage:
-#   bash scripts/run_random_sweep.sh
-#   bash scripts/run_random_sweep.sh --skip-train  # eval only
-# ============================================================
+# Run random and stratified incremental baselines.
 
+set -e
+cd "$(dirname "$0")/../.."
+mkdir -p logs
 
-cd /projects/standard/kumarv/shared/dwij/daycent/lib
+export DAYCENT_ROOT="${DAYCENT_ROOT:-$(cd .. && pwd)}"
+export DAYCENT_OUTPUT_ROOT="${DAYCENT_OUTPUT_ROOT:-$DAYCENT_ROOT/output}"
+export DAYCENT_PROCESSED_ROOT="${DAYCENT_PROCESSED_ROOT:-$DAYCENT_ROOT/data}"
 
-# Activate environment
-source ~/anaconda3/etc/profile.d/conda.sh
-conda activate wstatt
-
-EXTRA_ARGS="$@"
-
-python run_ensemble_experiment.py \
-      --base-config configs/selection/selection_base.yaml \
-      --strategy random --step-size 50 --max-points 300 \
-      --seed 42 \
-      --ensemble-seeds 42 123 456 789 1024 \
-      --experiment-name exp5_random
+BASE_CONFIG="${BASE_CONFIG:-configs/selection/selection_exp6.yaml}"
+STEP_SIZE="${STEP_SIZE:-5}"
+MAX_POINTS="${MAX_POINTS:-50}"
+SEED="${SEED:-42}"
+ENSEMBLE_SEEDS="${ENSEMBLE_SEEDS:-42}"
 
 python run_ensemble_experiment.py \
-      --base-config configs/selection/selection_base.yaml \
-      --strategy stratified --step-size 50 --max-points 300 \
-      --seed 42 \
-      --ensemble-seeds 42 123 456 789 1024 \
-      --experiment-name exp5_stratified
+    --base-config "$BASE_CONFIG" \
+    --strategy random \
+    --step-size "$STEP_SIZE" \
+    --max-points "$MAX_POINTS" \
+    --seed "$SEED" \
+    --ensemble-seeds $ENSEMBLE_SEEDS \
+    --experiment-name "${RANDOM_EXPERIMENT_NAME:-exp6_random}" \
+    "$@"
+
+python run_ensemble_experiment.py \
+    --base-config "$BASE_CONFIG" \
+    --strategy stratified \
+    --step-size "$STEP_SIZE" \
+    --max-points "$MAX_POINTS" \
+    --seed "$SEED" \
+    --ensemble-seeds $ENSEMBLE_SEEDS \
+    --experiment-name "${STRATIFIED_EXPERIMENT_NAME:-exp6_stratified}" \
+    --feature-groups spatial elevation climate soil \
+    "$@"

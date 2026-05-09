@@ -15,7 +15,7 @@ Usage examples
 --------------
   # Ensemble of 5 with random strategy, growing by 50 each step up to 200
   python run_ensemble_experiment.py \\
-      --base-config configs/selection_base.yaml \\
+      --base-config configs/selection/selection_exp6.yaml \\
       --strategy random --step-size 50 --max-points 300 \\
       --seed 42 \\
       --ensemble-seeds 42 123 456 789 1024 \\
@@ -23,10 +23,10 @@ Usage examples
 
   # LCMD ensemble growing by 25 each step up to 150
   python run_ensemble_experiment.py \\
-      --base-config configs/selection_base.yaml \\
+      --base-config configs/selection/selection_exp6.yaml \\
       --strategy lcmd --step-size 25 --max-points 150 \\
       --seed 42 \\
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/inverse_1/eval \\
+      --embedding-path ../output/static_emb_32 \\
       --ensemble-seeds 42 123 456 789 1024 \\
       --experiment-name exp5_lcmd
 """
@@ -55,6 +55,7 @@ from run_selection_experiment import (
     build_experiment_config,
     train_eval_single,
 )
+from utils.paths import processed_root, selection_output_root
 
 
 # =========================================================================== #
@@ -159,7 +160,7 @@ def run_ensemble(
     # Budget-level directory (shared across all members)
     budget_tag = f"{experiment_name}/{strategy_name}/n{n_points}_ss{selection_seed}"
     budget_dir = os.path.join(
-        "/projects/standard/kumarv/shared/dwij/daycent/output/selection", budget_tag
+        selection_output_root(), budget_tag
     )
     os.makedirs(budget_dir, exist_ok=True)
 
@@ -187,7 +188,7 @@ def run_ensemble(
 
     # Shared preprocessed data cache: all members reuse the same .npy files
     shared_processed_dir = os.path.join(
-        "/projects/standard/kumarv/shared/dwij/daycent/data/selection", budget_tag
+        processed_root(), "selection", budget_tag
     )
 
     # Train each ensemble member sequentially
@@ -285,7 +286,7 @@ def run_ensemble_sweep(args) -> None:
     # Shared initial points (optional)                                    #
     # ------------------------------------------------------------------ #
     sweep_dir = os.path.join(
-        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
+        selection_output_root(),
         args.experiment_name,
         args.strategy,
         f"ensemble_sweep_ss{args.seed}",

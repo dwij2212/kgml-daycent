@@ -18,13 +18,13 @@ Usage
   python run_bo_experiment.py \\
       --base-config configs/selection/selection_base.yaml \\
       --n-points 50 --n-iterations 50 --seed 42 \\
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/inverse_1/eval \\
+      --embedding-path ../output/inverse_1/eval \\
       --experiment-name exp5_bo --score-metric yield_r2
 
     python run_bo_experiment.py \
       --base-config configs/selection/selection_base.yaml \
       --n-points 100 --n-iterations 50 --seed 42 \
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+      --embedding-path ../output/static_emb_32 \
       --experiment-name exp5_bo --score-metric yield_r2
 """
 import argparse
@@ -58,6 +58,7 @@ from run_selection_experiment import (
 from selection import get_strategy, SelectionResult
 from selection.visualize import plot_selected_points, plot_feature_coverage
 from data.preprocessing import load_raw_data
+from utils.paths import selection_output_root
 
 
 def subset_signature(points: List[str]) -> str:
@@ -82,7 +83,7 @@ def _bo_run_prefix(args) -> str:
 def bo_output_dir(args) -> str:
     """Directory containing aggregate files for one BO loop."""
     parts = [
-        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
+        selection_output_root(),
         args.experiment_name,
         "bo_graph",
     ]

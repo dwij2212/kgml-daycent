@@ -13,6 +13,8 @@ import pandas as pd
 from dataclasses import dataclass, field, asdict
 from typing import List, Optional, Dict, Any, Union
 
+from .paths import output_root, processed_root
+
 
 @dataclass
 class SplitConfig:
@@ -91,7 +93,10 @@ class SplitConfig:
 @dataclass
 class DataConfig:
     """Configuration for data preparation."""
-    base_dir: str = "/projects/standard/kumarv/shared/dwij/daycent/data/SAS_KGML_090925"
+    base_dir: str = field(default_factory=lambda: os.environ.get(
+        "DAYCENT_RAW_DATA_ROOT",
+        "/projects/standard/kumarv/shared/dwij/daycent/data/SAS_KGML_090925",
+    ))
     input_dir: str = field(init=False)
     output_dir: str = field(init=False)
     weather_dir: str = field(init=False)
@@ -313,8 +318,8 @@ class ExperimentConfig:
         if self.shared_processed_dir:
             self.processed_dir = self.shared_processed_dir
         else:
-            self.processed_dir = f"/projects/standard/kumarv/shared/dwij/daycent/data/{self.experiment_id}"
-        self.output_dir = f"/projects/standard/kumarv/shared/dwij/daycent/output/{self.experiment_id}"
+            self.processed_dir = os.path.join(processed_root(), self.experiment_id)
+        self.output_dir = os.path.join(output_root(), self.experiment_id)
         self.plots_dir = os.path.join(self.output_dir, "plots")
 
         # Create directories if they don't exist
@@ -573,7 +578,7 @@ class InverseExperimentConfig:
 
     def __post_init__(self):
         if not self.output_dir:
-            self.output_dir = f"/projects/standard/kumarv/shared/dwij/daycent/output/{self.experiment_id}"
+            self.output_dir = os.path.join(output_root(), self.experiment_id)
         self.model_dir  = os.path.join(self.output_dir, "models")
         self.result_dir = os.path.join(self.output_dir, "results")
         os.makedirs(self.model_dir,  exist_ok=True)

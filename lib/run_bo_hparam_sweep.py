@@ -10,7 +10,7 @@ Example:
   python run_bo_hparam_sweep.py \
       --base-config configs/selection/selection_base.yaml \
       --n-points 20 --n-iterations 20 --seeds 42 \
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+      --embedding-path ../output/static_emb_32 \
       --experiment-name exp6_bo_hparam_n20 \
       --Q-values 100 200 400 \
       --max-radius-values 3 5
@@ -36,8 +36,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from utils.paths import selection_output_root
 
-OUTPUT_ROOT = "/projects/standard/kumarv/shared/dwij/daycent/output/selection"
+OUTPUT_ROOT = selection_output_root()
 
 
 def _float_token(value: float) -> str:

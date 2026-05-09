@@ -1,12 +1,12 @@
-#!/bin/bash
-# ============================================================
-# After running both sweeps, compare results across strategies.
-#
-# Usage:
-#   bash scripts/compare_strategies.sh
-# ============================================================
+#!/usr/bin/env bash
+
 set -e
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
+
+export DAYCENT_ROOT="${DAYCENT_ROOT:-$(cd .. && pwd)}"
+export DAYCENT_OUTPUT_ROOT="${DAYCENT_OUTPUT_ROOT:-$DAYCENT_ROOT/output}"
+export DAYCENT_PROCESSED_ROOT="${DAYCENT_PROCESSED_ROOT:-$DAYCENT_ROOT/data}"
 
 python compare_selection_runs.py \
-    --runs-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection
+    --runs-dir "${RUNS_DIR:-$DAYCENT_OUTPUT_ROOT/selection}" \
+    "$@"

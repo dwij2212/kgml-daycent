@@ -16,20 +16,20 @@ Usage examples
 --------------
   # Random: grow by 50 each step up to 200 total → train at 50,100,150,200
   python run_selection_experiment.py \\
-      --base-config configs/selection_base.yaml \\
+      --base-config configs/selection/selection_exp6.yaml \\
       --strategy random --step-size 50 --max-points 200 --seed 42
 
   # Stratified: single step of 100
   python run_selection_experiment.py \\
-      --base-config configs/selection_base.yaml \\
+      --base-config configs/selection/selection_exp6.yaml \\
       --strategy stratified --step-size 100 --seed 42 \\
       --feature-groups spatial soil elevation
 
   # LCMD: grow by 25 each step up to 150
   python run_selection_experiment.py \\
-      --base-config configs/selection_base.yaml \\
+      --base-config configs/selection/selection_exp6.yaml \\
       --strategy lcmd --step-size 25 --max-points 150 --seed 42 \\
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/inverse_1/eval
+      --embedding-path ../output/static_emb_32
 """
 import argparse
 import copy
@@ -54,6 +54,7 @@ from selection.visualize import plot_selected_points, plot_feature_coverage
 from train_emulator import train
 from eval_emulator import evaluate_experiment
 from data.preprocessing import load_raw_data, normalize_raw_data
+from utils.paths import selection_output_root
 
 
 # =========================================================================== #
@@ -565,7 +566,7 @@ def run_sweep(args):
     # Shared initial points (optional)                                    #
     # ------------------------------------------------------------------ #
     sweep_dir = os.path.join(
-        "/projects/standard/kumarv/shared/dwij/daycent/output/selection",
+        selection_output_root(),
         experiment_name,
         args.strategy,
         f"sweep_s{args.seed}",

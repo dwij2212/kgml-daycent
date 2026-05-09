@@ -11,8 +11,8 @@ shared parser.
 Usage:
     python compare_selection_iterations.py \
         --n-points 30 \
-        --random-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection/exp6_random/random \
-        --bo-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection/exp6_bo/bo_graph
+        --random-dir ../output/selection/exp6_random/random \
+        --bo-dir ../output/selection/exp6_bo/bo_graph
 """
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
+
+from utils.paths import selection_output_root
 
 
 def _safe_float(value) -> float:
@@ -284,13 +286,13 @@ def main():
     parser.add_argument(
         "--random-dir",
         type=str,
-        default="/projects/standard/kumarv/shared/dwij/daycent/output/selection/exp6_random/random",
+        default=os.path.join(selection_output_root(), "exp6_random", "random"),
         help="Directory containing random runs (n*_ss*/ensemble_summary.json).",
     )
     parser.add_argument(
         "--bo-dir",
         type=str,
-        default="/projects/standard/kumarv/shared/dwij/daycent/output/selection/exp6_bo/bo_graph",
+        default=os.path.join(selection_output_root(), "exp6_bo", "bo_graph"),
         help="Directory containing bo_graph runs (iter*_n*_s*/summary.json).",
     )
     parser.add_argument(

@@ -1,4 +1,4 @@
-#!/bin/bash -l
+#!/usr/bin/env bash
 #SBATCH --account=kumarv
 #SBATCH --job-name=bo_diff_seeds_n20
 #SBATCH --output=logs/bo_diff_seeds_n20_%j.out
@@ -11,49 +11,31 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=mehta423@umn.edu
 
-# ============================================================
-# Run BO with fixed framework hparams across multiple BO seeds.
-#
-# This isolates the effect of the first random k-subset selected by
-# BOGraphStrategy before the GP/EI loop takes over.
-#
-# Safety:
-#   - Complete existing seed runs are reused.
-#   - Incomplete existing seed artifacts cause the Python runner to stop
-#     instead of overwriting them.
-#   - Aggregate CSV/PNG reports go to a timestamped directory if the fixed
-#     report directory already contains files.
-#   - A preflight preview checks that these seeds produce distinct initial
-#     subsets before any training starts.
-#
-# Default hparams use the current best completed setting:
-#   Q=600, max_radius=3, n_points=20
-#
-# Usage:
-#   sbatch scripts/selection/run_bo_diff_seeds.sh
-#   sbatch scripts/selection/run_bo_diff_seeds.sh --seeds 42 123 456
-#   bash   scripts/selection/run_bo_diff_seeds.sh --plot-only
-# ============================================================
+# Run GraphBO with fixed hparams across different BO seeds.
 
-cd /projects/standard/kumarv/shared/dwij/daycent/lib
+set -e
+cd "$(dirname "$0")/../.."
+mkdir -p logs
 
-PYTHON_BIN=/users/6/mehta423/anaconda3/envs/wstatt/bin/python
-export MPLCONFIGDIR=/tmp/matplotlib-${USER}
+export DAYCENT_ROOT="${DAYCENT_ROOT:-$(cd .. && pwd)}"
+export DAYCENT_OUTPUT_ROOT="${DAYCENT_OUTPUT_ROOT:-$DAYCENT_ROOT/output}"
+export DAYCENT_PROCESSED_ROOT="${DAYCENT_PROCESSED_ROOT:-$DAYCENT_ROOT/data}"
 
-"${PYTHON_BIN}" run_bo_diff_seeds.py \
-    --base-config configs/selection/selection_exp6.yaml \
-    --n-points 20 \
-    --n-iterations 20 \
-    --seeds 42 123 456 789 \
-    --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
-    --experiment-name exp6_bo_hparam_n20 \
-    --sweep-label diff_seeds_q600_r3_n20 \
-    --score-metric yield_r2 \
-    --Q 600 \
-    --max-radius 3 \
-    --epsilon-factor 0.3 \
-    --fail-tol 20 \
-    --succ-tol 10 \
-    --shrink-tol 5 \
-    --reuse-existing \
+EMBEDDING_PATH="${EMBEDDING_PATH:-$DAYCENT_ROOT/output/static_emb_32}"
+
+python run_bo_diff_seeds.py \
+    --base-config "${BASE_CONFIG:-configs/selection/selection_exp6.yaml}" \
+    --n-points "${N_POINTS:-20}" \
+    --n-iterations "${N_ITERATIONS:-20}" \
+    --seeds ${BO_SEEDS:-42 123 456 789} \
+    --embedding-path "$EMBEDDING_PATH" \
+    --experiment-name "${EXPERIMENT_NAME:-exp6_bo_hparam_n20}" \
+    --sweep-label "${SWEEP_LABEL:-diff_seeds_q600_r3_n20}" \
+    --score-metric "${SCORE_METRIC:-yield_r2}" \
+    --Q "${Q:-600}" \
+    --max-radius "${MAX_RADIUS:-3}" \
+    --epsilon-factor "${EPSILON_FACTOR:-0.3}" \
+    --fail-tol "${FAIL_TOL:-20}" \
+    --succ-tol "${SUCC_TOL:-10}" \
+    --shrink-tol "${SHRINK_TOL:-5}" \
     "$@"

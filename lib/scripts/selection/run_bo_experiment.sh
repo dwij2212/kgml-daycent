@@ -1,6 +1,6 @@
-#!/bin/bash -l
+#!/usr/bin/env bash
 #SBATCH --account=kumarv
-#SBATCH --job-name=bo_graph_exp
+#SBATCH --job-name=bo_graph
 #SBATCH --output=logs/bo_graph_%j.out
 #SBATCH --error=logs/bo_graph_%j.err
 #SBATCH --time=23:00:00
@@ -11,54 +11,30 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=mehta423@umn.edu
 
-# ============================================================
-# Run a Bayesian Optimisation subset-selection experiment.
-#
-# The BO loop proposes a complete k-subset at each iteration,
-# trains an LSTM surrogate, evaluates on the test set, and
-# feeds the R² score back to guide the next proposal.
-#
-# Usage:
-#   sbatch scripts/selection/run_bo_experiment.sh
-#   sbatch scripts/selection/run_bo_experiment.sh --n-iterations 20
-#   bash   scripts/selection/run_bo_experiment.sh --skip-train  # dry-run
-# ============================================================
+# Run one fixed-budget GraphBO experiment.
 
-cd /projects/standard/kumarv/shared/dwij/daycent/lib
+set -e
+cd "$(dirname "$0")/../.."
+mkdir -p logs
 
-# Activate environment
-source ~/anaconda3/etc/profile.d/conda.sh
-conda activate wstatt
+export DAYCENT_ROOT="${DAYCENT_ROOT:-$(cd .. && pwd)}"
+export DAYCENT_OUTPUT_ROOT="${DAYCENT_OUTPUT_ROOT:-$DAYCENT_ROOT/output}"
+export DAYCENT_PROCESSED_ROOT="${DAYCENT_PROCESSED_ROOT:-$DAYCENT_ROOT/data}"
 
-EXTRA_ARGS="$@"
+EMBEDDING_PATH="${EMBEDDING_PATH:-$DAYCENT_ROOT/output/static_emb_32}"
 
-# python run_bo_experiment.py \
-#     --base-config configs/selection/selection_base.yaml \
-#     --n-points 200 \
-#     --n-iterations 50 \
-#     --seed 42 \
-#     --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
-#     --experiment-name exp5_bo \
-#     --score-metric yield_r2 \
-#     --Q 400 \
-#     --max-radius 5 \
-#     --epsilon-factor 0.3 \
-#     --fail-tol 20 \
-#     $EXTRA_ARGS
-
-
-for N_POINTS in $(seq 5 5 50); do
-    python run_bo_experiment.py \
-        --base-config configs/selection/selection_base.yaml \
-        --n-points "$N_POINTS" \
-        --n-iterations 10 \
-        --seed 42 \
-        --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
-        --experiment-name exp5_bo \
-        --score-metric yield_r2 \
-        --Q 400 \
-        --max-radius 5 \
-        --epsilon-factor 0.3 \
-        --fail-tol 20 \
-        $EXTRA_ARGS
-done
+python run_bo_experiment.py \
+    --base-config "${BASE_CONFIG:-configs/selection/selection_exp6.yaml}" \
+    --n-points "${N_POINTS:-20}" \
+    --n-iterations "${N_ITERATIONS:-20}" \
+    --seed "${SEED:-42}" \
+    --embedding-path "$EMBEDDING_PATH" \
+    --experiment-name "${EXPERIMENT_NAME:-exp6_bo}" \
+    --score-metric "${SCORE_METRIC:-yield_r2}" \
+    --Q "${Q:-600}" \
+    --max-radius "${MAX_RADIUS:-3}" \
+    --epsilon-factor "${EPSILON_FACTOR:-0.3}" \
+    --fail-tol "${FAIL_TOL:-20}" \
+    --succ-tol "${SUCC_TOL:-10}" \
+    --shrink-tol "${SHRINK_TOL:-5}" \
+    "$@"

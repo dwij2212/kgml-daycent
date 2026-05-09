@@ -11,7 +11,7 @@ Example:
       --base-config configs/selection/selection_exp6.yaml \
       --n-points 20 --n-iterations 20 \
       --seeds 42 123 456 789 \
-      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
+      --embedding-path ../output/static_emb_32 \
       --experiment-name exp6_bo_hparam_n20 \
       --Q 600 --max-radius 3
 """

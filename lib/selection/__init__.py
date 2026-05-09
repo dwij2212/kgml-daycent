@@ -1,21 +1,11 @@
 """
-Point selection strategies and active acquisition functions for data-efficient
-DayCent emulation.
+Point selection strategies for data-efficient DayCent emulation.
 
-One-shot strategies
--------------------
+Example:
     from selection import get_strategy
 
     strategy = get_strategy("random", n_points=50, seed=42)
-    selected = strategy.select(pool_points, metadata)
-
-Active acquisition functions (for iterative active loops)
-----------------------------------------------------------
-    from selection import get_acquisition
-
-    acq = get_acquisition("random", seed=42)
-    scores = acq.score(model_path, candidate_points, current_train, metadata)
-    next_batch = acq.select_top(scores, n=25)
+    result = strategy.select(pool_points, metadata=metadata)
 """
 
 from .base import BaseStrategy, SelectionResult
