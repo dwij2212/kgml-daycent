@@ -16,7 +16,7 @@ import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from data.yearly import create_yearly_dataset, prepare_yearly_data
+from data.yearly import SOC_STATE_COLS, create_yearly_dataset, prepare_yearly_data
 from model import build_model
 from utils import (
     compute_masked_metrics,
@@ -68,6 +68,223 @@ def collect_predictions(model, loader, device):
     }
 
 
+def _batch_value_at(batch, key, idx):
+    value = batch[key]
+    if isinstance(value, (list, tuple)):
+        return value[idx]
+    return value
+
+
+def collect_state_predictions(model, loader, device):
+    """Run teacher-forced state-model inference and collect raw-unit outputs."""
+    model.eval()
+
+    predictions = {
+        "somsc_pred": [],
+        "somsc_true": [],
+        "somsc_mask": [],
+        "somsc_delta_pred": [],
+        "somsc_delta_true": [],
+        "somsc_persistence_pred": [],
+        "soc_state_pred": [],
+        "soc_state_true": [],
+        "soc_state_delta_pred": [],
+        "soc_state_delta_true": [],
+        "prev_soc_state_true": [],
+        "metadata": [],
+        "eval_mode": "teacher_forced",
+    }
+
+    print("Running yearly state inference (teacher_forced)...")
+    for batch in tqdm(loader, desc="Inference"):
+        batch = move_batch_to_device(batch, device)
+
+        with torch.no_grad():
+            outputs = model(batch)
+
+        prev_somsc = batch["prev_somsc_state"]
+        predictions["somsc_pred"].append(outputs["somsc_pred"].cpu().numpy())
+        predictions["somsc_true"].append(batch["somsc"].cpu().numpy())
+        predictions["somsc_mask"].append(batch["somsc_mask"].cpu().numpy())
+        predictions["somsc_delta_pred"].append(
+            (outputs["somsc_pred"] - prev_somsc).cpu().numpy()
+        )
+        predictions["somsc_delta_true"].append(
+            (batch["somsc"] - prev_somsc).cpu().numpy()
+        )
+        predictions["somsc_persistence_pred"].append(prev_somsc.cpu().numpy())
+        predictions["soc_state_pred"].append(outputs["soc_state_pred"].cpu().numpy())
+        predictions["soc_state_true"].append(batch["target_soc_state_raw"].cpu().numpy())
+        predictions["soc_state_delta_pred"].append(
+            outputs["soc_state_delta_pred"].cpu().numpy()
+        )
+        predictions["soc_state_delta_true"].append(
+            batch["soc_state_delta_raw"].cpu().numpy()
+        )
+        predictions["prev_soc_state_true"].append(batch["prev_soc_state_raw"].cpu().numpy())
+
+        batch_size = len(batch["pid"])
+        for idx in range(batch_size):
+            predictions["metadata"].append(
+                {
+                    "scenario_id": _batch_value_at(batch, "scenario_id", idx),
+                    "pid": _batch_value_at(batch, "pid", idx),
+                    "year": _batch_value_at(batch, "year", idx),
+                }
+            )
+
+    for key in [
+        "somsc_pred",
+        "somsc_true",
+        "somsc_mask",
+        "somsc_delta_pred",
+        "somsc_delta_true",
+        "somsc_persistence_pred",
+        "soc_state_pred",
+        "soc_state_true",
+        "soc_state_delta_pred",
+        "soc_state_delta_true",
+        "prev_soc_state_true",
+    ]:
+        predictions[key] = np.concatenate(predictions[key], axis=0)
+
+    return predictions
+
+
+def _tensorize_single_sample(sample):
+    batch = {}
+    for key, value in sample.items():
+        if isinstance(value, torch.Tensor):
+            batch[key] = value.unsqueeze(0)
+        else:
+            batch[key] = [value]
+    return batch
+
+
+def _normalize_state(state_raw: np.ndarray, state_input_scaler) -> np.ndarray:
+    return state_input_scaler.transform(state_raw.reshape(1, -1))[0].astype(np.float32)
+
+
+def collect_state_rollout_predictions(model, dataset, device, state_input_scaler):
+    """
+    Roll out one continuous trajectory per scenario-point.
+
+    The first sample for each trajectory uses the true previous pool state; later
+    samples feed the model's predicted state forward.
+    """
+    model.eval()
+    predictions = {
+        "somsc_pred": [],
+        "somsc_true": [],
+        "somsc_mask": [],
+        "somsc_delta_pred": [],
+        "somsc_delta_true": [],
+        "somsc_persistence_pred": [],
+        "soc_state_pred": [],
+        "soc_state_true": [],
+        "soc_state_delta_pred": [],
+        "soc_state_delta_true": [],
+        "prev_soc_state_true": [],
+        "metadata": [],
+        "eval_mode": "rollout",
+    }
+
+    grouped_indices = {}
+    for idx, (scenario_id, pid, year) in enumerate(dataset.samples):
+        grouped_indices.setdefault((scenario_id, pid), []).append((int(year), idx))
+
+    print("Running yearly state inference (rollout)...")
+    for _, year_indices in tqdm(
+        grouped_indices.items(),
+        desc="Rollout trajectories",
+    ):
+        current_state_raw = None
+        for _, sample_idx in sorted(year_indices):
+            sample = dataset[sample_idx]
+            true_prev_state = sample["prev_soc_state_raw"].numpy().astype(np.float32)
+
+            if current_state_raw is None:
+                input_prev_state_raw = true_prev_state
+                input_prev_state_norm = sample["prev_soc_state_norm"].numpy().astype(
+                    np.float32
+                )
+            else:
+                input_prev_state_raw = current_state_raw.astype(np.float32)
+                input_prev_state_norm = _normalize_state(
+                    input_prev_state_raw,
+                    state_input_scaler,
+                )
+
+            batch = _tensorize_single_sample(sample)
+            batch["prev_soc_state_raw"] = torch.tensor(
+                input_prev_state_raw,
+                dtype=torch.float32,
+            ).unsqueeze(0)
+            batch["prev_soc_state_norm"] = torch.tensor(
+                input_prev_state_norm,
+                dtype=torch.float32,
+            ).unsqueeze(0)
+            batch["prev_somsc_state"] = torch.tensor(
+                input_prev_state_raw[:3].sum(),
+                dtype=torch.float32,
+            ).unsqueeze(0)
+            batch = move_batch_to_device(batch, device)
+
+            with torch.no_grad():
+                outputs = model(batch)
+
+            current_state_raw = outputs["soc_state_pred"].squeeze(0).cpu().numpy()
+
+            true_prev_somsc = sample["prev_somsc_state"].reshape(-1)
+            predictions["somsc_pred"].append(outputs["somsc_pred"].cpu().numpy())
+            predictions["somsc_true"].append(sample["somsc"].reshape(1).numpy())
+            predictions["somsc_mask"].append(sample["somsc_mask"].reshape(1).numpy())
+            predictions["somsc_delta_pred"].append(
+                outputs["soc_state_delta_pred"][:, :3].sum(dim=-1).cpu().numpy()
+            )
+            predictions["somsc_delta_true"].append(
+                (sample["somsc"].reshape(1) - true_prev_somsc).numpy()
+            )
+            predictions["somsc_persistence_pred"].append(true_prev_somsc.numpy())
+            predictions["soc_state_pred"].append(outputs["soc_state_pred"].cpu().numpy())
+            predictions["soc_state_true"].append(
+                sample["target_soc_state_raw"].unsqueeze(0).numpy()
+            )
+            predictions["soc_state_delta_pred"].append(
+                outputs["soc_state_delta_pred"].cpu().numpy()
+            )
+            predictions["soc_state_delta_true"].append(
+                sample["soc_state_delta_raw"].unsqueeze(0).numpy()
+            )
+            predictions["prev_soc_state_true"].append(
+                sample["prev_soc_state_raw"].unsqueeze(0).numpy()
+            )
+            predictions["metadata"].append(
+                {
+                    "scenario_id": sample["scenario_id"],
+                    "pid": sample["pid"],
+                    "year": sample["year"],
+                }
+            )
+
+    for key in [
+        "somsc_pred",
+        "somsc_true",
+        "somsc_mask",
+        "somsc_delta_pred",
+        "somsc_delta_true",
+        "somsc_persistence_pred",
+        "soc_state_pred",
+        "soc_state_true",
+        "soc_state_delta_pred",
+        "soc_state_delta_true",
+        "prev_soc_state_true",
+    ]:
+        predictions[key] = np.concatenate(predictions[key], axis=0)
+
+    return predictions
+
+
 def inverse_transform_predictions(predictions, scaler_path):
     """Inverse-transform yearly SOMSC predictions back to the original scale."""
     scaler_y = joblib.load(scaler_path)
@@ -107,6 +324,51 @@ def calculate_metrics(predictions):
     }
 
 
+def calculate_state_metrics(predictions):
+    """Calculate raw-unit metrics for state-model predictions."""
+    somsc_level = compute_masked_metrics(
+        predictions["somsc_true"],
+        predictions["somsc_pred"],
+        predictions["somsc_mask"],
+    )
+    somsc_delta = compute_masked_metrics(
+        predictions["somsc_delta_true"],
+        predictions["somsc_delta_pred"],
+        predictions["somsc_mask"],
+    )
+    persistence = compute_masked_metrics(
+        predictions["somsc_true"],
+        predictions["somsc_persistence_pred"],
+        predictions["somsc_mask"],
+    )
+
+    pool_delta = {}
+    mask = predictions["somsc_mask"].reshape(-1).astype(bool)
+    for idx, name in enumerate(SOC_STATE_COLS):
+        pool_delta[name] = compute_regression_metrics(
+            predictions["soc_state_delta_true"][mask, idx],
+            predictions["soc_state_delta_pred"][mask, idx],
+        )
+
+    scenario_point_avg = compute_grouped_masked_metrics(
+        predictions["somsc_true"],
+        predictions["somsc_pred"],
+        predictions["somsc_mask"],
+        group_keys=[
+            (meta["scenario_id"], meta["pid"])
+            for meta in predictions["metadata"]
+        ],
+    )
+
+    return {
+        "somsc_level": somsc_level,
+        "somsc_delta": somsc_delta,
+        "persistence": persistence,
+        "pool_delta": pool_delta,
+        "scenario_point_avg": scenario_point_avg,
+    }
+
+
 def print_metrics(metrics, split_name):
     """Print evaluation metrics in a formatted table."""
     print(f"\n{'=' * 80}")
@@ -129,6 +391,47 @@ def print_metrics(metrics, split_name):
             f"{scenario_point_avg['mean_samples_per_group']:.2f}"
         )
         print(f"  MSE:   {scenario_point_avg['mse']:.4f}")
+        print(f"  RMSE:  {scenario_point_avg['rmse']:.4f}")
+        print(f"  MAE:   {scenario_point_avg['mae']:.4f}")
+        print(f"  R2:    {scenario_point_avg['r2']:.4f}")
+    print(f"\n{'=' * 80}\n")
+
+
+def _print_metric_block(title, metrics):
+    print(title)
+    print(f"  Samples: {metrics['n_samples']}")
+    print(f"  MSE:     {metrics['mse']:.4f}")
+    print(f"  RMSE:    {metrics['rmse']:.4f}")
+    print(f"  MAE:     {metrics['mae']:.4f}")
+    print(f"  R2:      {metrics['r2']:.4f}")
+
+
+def print_state_metrics(metrics, split_name, eval_mode):
+    """Print raw-unit state-model evaluation metrics."""
+    print(f"\n{'=' * 80}")
+    print(
+        "YEARLY SOC STATE EVALUATION METRICS - "
+        f"{split_name.upper()} SET ({eval_mode})"
+    )
+    print(f"{'=' * 80}\n")
+
+    _print_metric_block("SOMSC level", metrics["somsc_level"])
+    print()
+    _print_metric_block("SOMSC annual delta", metrics["somsc_delta"])
+    print()
+    _print_metric_block("Persistence baseline (previous true SOMSC)", metrics["persistence"])
+
+    print("\nPool annual deltas")
+    for name, pool_metrics in metrics["pool_delta"].items():
+        print(
+            f"  {name}: RMSE={pool_metrics['rmse']:.4f}, "
+            f"MAE={pool_metrics['mae']:.4f}, R2={pool_metrics['r2']:.4f}"
+        )
+
+    scenario_point_avg = metrics.get("scenario_point_avg")
+    if scenario_point_avg is not None:
+        print("\nAverage of per-(scenario_id, pid) SOMSC level metrics")
+        print(f"  Scenario-point groups: {scenario_point_avg['n_groups']}")
         print(f"  RMSE:  {scenario_point_avg['rmse']:.4f}")
         print(f"  MAE:   {scenario_point_avg['mae']:.4f}")
         print(f"  R2:    {scenario_point_avg['r2']:.4f}")
@@ -182,6 +485,64 @@ def plot_predictions(scenario_id, pid, sample_indices, predictions, plots_dir):
     print(f"  Saved plot: {save_path}")
 
 
+def plot_soc_state_stack(scenario_id, pid, sample_indices, predictions, plots_dir):
+    """Plot stacked predicted/true SOC pool trajectories for one scenario-point."""
+    if "soc_state_pred" not in predictions:
+        return
+
+    import matplotlib.pyplot as plt
+
+    years = np.array(
+        [int(predictions["metadata"][idx]["year"]) for idx in sample_indices],
+        dtype=int,
+    )
+    sort_idx = np.argsort(years)
+    sorted_indices = np.asarray(sample_indices, dtype=int)[sort_idx]
+    years = years[sort_idx]
+
+    true_state = predictions["soc_state_true"][sorted_indices]
+    pred_state = predictions["soc_state_pred"][sorted_indices]
+    mask = predictions["somsc_mask"][sorted_indices].astype(bool).reshape(-1)
+    years = years[mask]
+    true_state = true_state[mask]
+    pred_state = pred_state[mask]
+
+    scenario_dir = os.path.join(plots_dir, str(scenario_id))
+    os.makedirs(scenario_dir, exist_ok=True)
+    save_path = os.path.join(scenario_dir, f"point_{pid}_soc_pools.png")
+
+    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
+    colors = ["#3B7A57", "#C85A54", "#4E79A7", "#A06CD5"]
+    axes[0].stackplot(
+        years,
+        true_state.T,
+        labels=SOC_STATE_COLS,
+        colors=colors,
+        alpha=0.75,
+    )
+    axes[0].set_title(f"Scenario {scenario_id} | Point {pid} | True SOC pools")
+    axes[0].set_ylabel("g C/m²")
+    axes[0].grid(True, alpha=0.25)
+
+    axes[1].stackplot(
+        years,
+        pred_state.T,
+        labels=SOC_STATE_COLS,
+        colors=colors,
+        alpha=0.75,
+    )
+    axes[1].set_title("Predicted SOC pools")
+    axes[1].set_xlabel("Year")
+    axes[1].set_ylabel("g C/m²")
+    axes[1].grid(True, alpha=0.25)
+    axes[1].legend(loc="upper left", ncol=2, fontsize=8)
+
+    plt.tight_layout()
+    fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved plot: {save_path}")
+
+
 def generate_sample_plots(predictions, plots_dir, num_scenarios=5, num_points_per_scenario=3):
     """Generate yearly sample plots for a subset of scenarios and points."""
     print(f"\n{'=' * 80}")
@@ -215,6 +576,7 @@ def generate_sample_plots(predictions, plots_dir, num_scenarios=5, num_points_pe
         for pid in sampled_pids:
             sample_indices = index[(scenario_id, pid)]
             plot_predictions(scenario_id, pid, sample_indices, predictions, plots_dir)
+            plot_soc_state_stack(scenario_id, pid, sample_indices, predictions, plots_dir)
             total_plots += 1
 
     print(f"\n{'=' * 80}")
@@ -244,12 +606,54 @@ def save_predictions_to_csv(predictions, output_path):
     print(f"  Saved {len(df)} yearly predictions")
 
 
-def evaluate_experiment(config, split="test", num_samples=5, save_csv=True, prepared_data=None):
+def save_state_predictions_to_csv(predictions, output_path):
+    """Save state-model predictions and pool diagnostics to CSV."""
+    print(f"\nSaving yearly state predictions to CSV: {output_path}")
+
+    rows = []
+    for idx, meta in enumerate(predictions["metadata"]):
+        row = {
+            "scenario_id": meta["scenario_id"],
+            "point_id": meta["pid"],
+            "year": meta["year"],
+            "eval_mode": predictions.get("eval_mode", "teacher_forced"),
+            "somsc_pred": predictions["somsc_pred"][idx],
+            "somsc_true": predictions["somsc_true"][idx],
+            "somsc_delta_pred": predictions["somsc_delta_pred"][idx],
+            "somsc_delta_true": predictions["somsc_delta_true"][idx],
+            "somsc_persistence_pred": predictions["somsc_persistence_pred"][idx],
+            "somsc_mask": predictions["somsc_mask"][idx],
+        }
+        for pool_idx, pool_name in enumerate(SOC_STATE_COLS):
+            row[f"{pool_name}_pred"] = predictions["soc_state_pred"][idx, pool_idx]
+            row[f"{pool_name}_true"] = predictions["soc_state_true"][idx, pool_idx]
+            row[f"{pool_name}_delta_pred"] = predictions["soc_state_delta_pred"][
+                idx, pool_idx
+            ]
+            row[f"{pool_name}_delta_true"] = predictions["soc_state_delta_true"][
+                idx, pool_idx
+            ]
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    df.to_csv(output_path, index=False)
+    print(f"  Saved {len(df)} yearly state predictions")
+
+
+def evaluate_experiment(
+    config,
+    split="test",
+    num_samples=5,
+    save_csv=True,
+    prepared_data=None,
+    eval_mode="teacher_forced",
+):
     """Main evaluation function for yearly SOMSC experiments."""
     print(f"\n{'=' * 80}")
     print(f"EVALUATING YEARLY EXPERIMENT: {config.experiment_id}")
     print(f"Description: {config.description}")
     print(f"Split: {split}")
+    print(f"Evaluation mode: {eval_mode}")
     print(f"{'=' * 80}\n")
 
     print("Step 1: Preparing yearly data...")
@@ -283,11 +687,14 @@ def evaluate_experiment(config, split="test", num_samples=5, save_csv=True, prep
     if not split_config:
         raise ValueError(f"No configuration found for split: {split}")
 
+    use_soc_state = config.model.model_type == "yearly_somsc_state"
+
     dataset = create_yearly_dataset(
         prepared_data=prepared_data,
         init_cond_path=config.data.init_cond_file,
         split_config=split_config,
         year_emb_dim=16,
+        use_soc_state=use_soc_state,
     )
     if len(dataset) == 0:
         raise ValueError(f"Yearly dataset for split '{split}' is empty.")
@@ -319,35 +726,91 @@ def evaluate_experiment(config, split="test", num_samples=5, save_csv=True, prep
     print(f"  Model loaded from: {model_path}")
     print(f"  Device: {device}")
 
-    print("\nStep 4: Collecting yearly predictions...")
-    predictions = collect_predictions(model, loader, device)
+    if not use_soc_state:
+        if eval_mode not in {"teacher_forced", "both"}:
+            raise ValueError(
+                "Only teacher_forced evaluation is available for the legacy yearly_somsc model."
+            )
 
-    print("\nStep 5: Inverse transforming to original scale...")
-    # predictions = inverse_transform_predictions(predictions, config.get_scaler_path())
+        print("\nStep 4: Collecting yearly predictions...")
+        predictions = collect_predictions(model, loader, device)
 
-    print("\nStep 6: Calculating metrics...")
-    metrics = calculate_metrics(predictions)
-    print_metrics(metrics, split)
+        print("\nStep 5: Inverse transforming to original scale...")
+        # predictions = inverse_transform_predictions(predictions, config.get_scaler_path())
 
-    if save_csv:
-        print("\nStep 7: Saving yearly predictions...")
-        csv_path = os.path.join(config.output_dir, f"{split}_yearly_predictions.csv")
-        save_predictions_to_csv(predictions, csv_path)
+        print("\nStep 6: Calculating metrics...")
+        metrics = calculate_metrics(predictions)
+        print_metrics(metrics, split)
 
-    print("\nStep 8: Generating yearly sample plots...")
-    plots_dir = os.path.join(config.plots_dir, f"yearly_{split}")
-    generate_sample_plots(
-        predictions,
-        plots_dir,
-        num_scenarios=num_samples,
-        num_points_per_scenario=3,
-    )
+        if save_csv:
+            print("\nStep 7: Saving yearly predictions...")
+            csv_path = os.path.join(config.output_dir, f"{split}_yearly_predictions.csv")
+            save_predictions_to_csv(predictions, csv_path)
+
+        print("\nStep 8: Generating yearly sample plots...")
+        plots_dir = os.path.join(config.plots_dir, f"yearly_{split}")
+        generate_sample_plots(
+            predictions,
+            plots_dir,
+            num_scenarios=num_samples,
+            num_points_per_scenario=3,
+        )
+
+        print(f"\n{'=' * 80}")
+        print("YEARLY EVALUATION COMPLETE!")
+        print(f"{'=' * 80}\n")
+
+        return {"metrics": metrics, "predictions": predictions}
+
+    modes = ["teacher_forced", "rollout"] if eval_mode == "both" else [eval_mode]
+    invalid_modes = sorted(set(modes) - {"teacher_forced", "rollout"})
+    if invalid_modes:
+        raise ValueError(f"Invalid state evaluation mode(s): {invalid_modes}")
+
+    results = {}
+    for mode in modes:
+        print(f"\nStep 4: Collecting yearly state predictions ({mode})...")
+        if mode == "teacher_forced":
+            predictions = collect_state_predictions(model, loader, device)
+        else:
+            if "state_input_scaler" not in prepared_data:
+                raise ValueError("Rollout evaluation requires prepared_data['state_input_scaler'].")
+            predictions = collect_state_rollout_predictions(
+                model,
+                dataset,
+                device,
+                prepared_data["state_input_scaler"],
+            )
+
+        print("\nStep 5: Calculating state metrics...")
+        metrics = calculate_state_metrics(predictions)
+        print_state_metrics(metrics, split, mode)
+
+        if save_csv:
+            print("\nStep 6: Saving yearly state predictions...")
+            csv_path = os.path.join(
+                config.output_dir,
+                f"{split}_{mode}_yearly_state_predictions.csv",
+            )
+            save_state_predictions_to_csv(predictions, csv_path)
+
+        print("\nStep 7: Generating yearly state sample plots...")
+        plots_dir = os.path.join(config.plots_dir, f"yearly_{split}_{mode}")
+        generate_sample_plots(
+            predictions,
+            plots_dir,
+            num_scenarios=num_samples,
+            num_points_per_scenario=3,
+        )
+        results[mode] = {"metrics": metrics, "predictions": predictions}
 
     print(f"\n{'=' * 80}")
     print("YEARLY EVALUATION COMPLETE!")
     print(f"{'=' * 80}\n")
 
-    return {"metrics": metrics, "predictions": predictions}
+    if len(results) == 1:
+        return next(iter(results.values()))
+    return results
 
 
 def main():
@@ -376,6 +839,13 @@ def main():
         action="store_true",
         help="Save predictions to CSV",
     )
+    parser.add_argument(
+        "--eval-mode",
+        type=str,
+        default="teacher_forced",
+        choices=["teacher_forced", "rollout", "both"],
+        help="State-model evaluation mode (default: teacher_forced)",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.config):
@@ -388,6 +858,7 @@ def main():
         split=args.split,
         num_samples=args.num_samples,
         save_csv=args.save_csv,
+        eval_mode=args.eval_mode,
     )
 
 

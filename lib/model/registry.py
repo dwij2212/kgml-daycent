@@ -94,17 +94,24 @@ def build_model(model_config, sample_data: dict, verbose: bool = True) -> nn.Mod
     seq_feat_dim = sample_data["sequence"].shape[1]
     init_dim = sample_data["init_cond"].shape[0]
     year_dim = sample_data["year_enc"].shape[0]
+    state_dim = None
+    if "prev_soc_state_norm" in sample_data:
+        state_dim = sample_data["prev_soc_state_norm"].shape[0]
     
     if verbose:
         print(f"\nModel dimensions:")
         print(f"  Input features: {seq_feat_dim}")
         print(f"  Init cond dim:  {init_dim}")
         print(f"  Year enc dim:   {year_dim}")
+        if state_dim is not None:
+            print(f"  SOC state dim:  {state_dim}")
     
     # Update config with inferred dimensions
     model_config.input_dim = seq_feat_dim
     model_config.init_dim = init_dim
     model_config.year_dim = year_dim
+    if state_dim is not None:
+        model_config.state_dim = state_dim
     
     # Get model class
     model_name = model_config.model_type
@@ -120,6 +127,8 @@ def build_model(model_config, sample_data: dict, verbose: bool = True) -> nn.Mod
         'init_dim': init_dim,
         'year_dim': year_dim,
     }
+    if state_dim is not None:
+        kwargs["state_dim"] = state_dim
     
     # Add model-specific kwargs based on what the config has
     optional_kwargs = [

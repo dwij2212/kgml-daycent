@@ -14,6 +14,19 @@ from .preprocessing import load_raw_data, normalize_outputs
 
 MONTHLY_WEATHER_FEATURES = ["Tmax_mean", "Tmin_mean", "Precip_sum"]
 MONTHLY_ID_COLUMNS = ["scenario_id", "point_id", "Year", "month"]
+TARGET_MONTH = 12
+
+SOC_STATE_COLS = ["som1c_soil", "som2c_soil", "som3c", "som2c_surface"]
+SOMSC_SUM_COLS = ["som1c_soil", "som2c_soil", "som3c"]
+RAW_SOC_RENAMES = {
+    "som2c.1.": "som2c_surface",
+    "som2c.2.": "som2c_soil",
+    "snfxac.1.": "snfxac",
+    "tminrl.1.": "tminrl",
+    "strmac.1.": "strmac_water",
+    "strmac.2.": "strmac_mineral_n",
+    "fertot.1.1.": "fertot_n",
+}
 
 
 def _month_from_year_and_doy(years: pd.Series, doys: pd.Series) -> pd.Series:
@@ -95,6 +108,71 @@ def aggregate_management_monthly(management_df: pd.DataFrame) -> pd.DataFrame:
     return monthly
 
 
+def prepare_soc_state_outputs(raw_output_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepare raw DayCent monthly output rows with explicit SOM pool state columns.
+
+    ``somsc`` is a soil total, while ``som2c_surface`` is carried as an
+    auxiliary state.  The missing ``som1c_soil`` pool is derived from the
+    reported soil total and the two reported soil pools.
+    """
+    output = raw_output_df.copy().rename(columns=RAW_SOC_RENAMES)
+    required_cols = {
+        "scenario_id",
+        "point_id",
+        "Year",
+        "month",
+        "somsc",
+        "som2c_soil",
+        "som2c_surface",
+        "som3c",
+    }
+    missing_cols = sorted(required_cols - set(output.columns))
+    if missing_cols:
+        raise ValueError(
+            "Raw monthly output is missing required SOM pool columns after "
+            f"renaming: {missing_cols}"
+        )
+
+    output["scenario_id"] = output["scenario_id"].astype(str)
+    output["point_id"] = output["point_id"].astype(str)
+    output["Year"] = output["Year"].astype(int)
+    output["month"] = output["month"].astype(int)
+
+    output["som1c_soil"] = output["somsc"] - output["som2c_soil"] - output["som3c"]
+    keep_cols = ["scenario_id", "point_id", "Year", "month", "somsc"] + SOC_STATE_COLS
+    output = output[keep_cols].sort_values(
+        ["scenario_id", "point_id", "Year", "month"]
+    )
+    return output.reset_index(drop=True)
+
+
+def normalize_soc_state_outputs(
+    state_output_raw_df: pd.DataFrame,
+    train_pids: list,
+    train_scenario_ids: list,
+    train_years: list,
+    target_month: int = TARGET_MONTH,
+) -> Tuple[pd.DataFrame, StandardScaler]:
+    """Normalize previous pool-state context using target-month training rows."""
+    output = state_output_raw_df.copy()
+    train_mask = output["point_id"].isin([str(pid) for pid in train_pids])
+    train_mask &= output["scenario_id"].isin([str(sid) for sid in train_scenario_ids])
+    train_mask &= output["Year"].isin([int(year) for year in train_years])
+    train_mask &= output["month"].eq(int(target_month))
+
+    train_state = output.loc[train_mask, SOC_STATE_COLS]
+    if train_state.empty:
+        raise ValueError(
+            "No training target-month rows available to fit the SOC state scaler."
+        )
+
+    scaler = StandardScaler()
+    scaler.fit(train_state)
+    output[SOC_STATE_COLS] = scaler.transform(output[SOC_STATE_COLS])
+    return output, scaler
+
+
 def _load_initial_conditions(path: str) -> pd.DataFrame:
     df = pd.read_excel(path).set_index("id")
     df.dropna(axis=1, inplace=True)
@@ -144,6 +222,22 @@ def prepare_yearly_data(config) -> Dict[str, Any]:
     )
     print(f"   Normalized output shape: {output_df.shape}")
 
+    print("\n8. Preparing raw SOC pool-state outputs...")
+    state_output_raw_df = prepare_soc_state_outputs(raw_data["output_df"].copy())
+    print(f"   Raw state output shape: {state_output_raw_df.shape}")
+
+    print("\n9. Normalizing SOC pool-state context...")
+    state_output_norm_df, state_input_scaler = normalize_soc_state_outputs(
+        state_output_raw_df,
+        train_pids,
+        train_scenario_ids,
+        train_years,
+    )
+    print(
+        "   SOC state scaler fitted on December training rows "
+        f"for {len(SOC_STATE_COLS)} pools"
+    )
+
     print("\n" + "=" * 80)
     print("YEARLY DATA PREPARATION COMPLETE")
     print("=" * 80 + "\n")
@@ -152,8 +246,11 @@ def prepare_yearly_data(config) -> Dict[str, Any]:
         "weather_df": weather_df,
         "management_df": management_df,
         "output_df": output_df,
+        "state_output_raw_df": state_output_raw_df,
+        "state_output_norm_df": state_output_norm_df,
         "weather_scaler": weather_scaler,
         "output_scaler": output_scaler,
+        "state_input_scaler": state_input_scaler,
     }
 
 
@@ -170,6 +267,9 @@ class YearlySOMSCDataset(Dataset):
         init_cond_path: str,
         split_config: Dict[str, Any],
         year_emb_dim: int = 16,
+        use_soc_state: bool = False,
+        state_output_raw_df: Optional[pd.DataFrame] = None,
+        state_output_norm_df: Optional[pd.DataFrame] = None,
     ):
         if not split_config:
             raise ValueError("split_config must be provided")
@@ -177,6 +277,7 @@ class YearlySOMSCDataset(Dataset):
         print("Initializing yearly SOMSC dataset...")
 
         self.year_emb_dim = year_emb_dim
+        self.use_soc_state = use_soc_state
         self.weather_cols = MONTHLY_WEATHER_FEATURES
         self.init_conditions = _load_initial_conditions(init_cond_path)
         self.mgmt_cols = [
@@ -187,7 +288,13 @@ class YearlySOMSCDataset(Dataset):
         self.point_ids = [str(pid) for pid in split_config["points"]]
         self.years = [int(year) for year in split_config["years"]]
 
-        self._build_lookup_indices(weather_df, management_df, output_df)
+        self._build_lookup_indices(
+            weather_df,
+            management_df,
+            output_df,
+            state_output_raw_df=state_output_raw_df,
+            state_output_norm_df=state_output_norm_df,
+        )
         self.samples = self._build_sample_index()
         self.total_len = len(self.samples)
 
@@ -202,6 +309,8 @@ class YearlySOMSCDataset(Dataset):
         weather_df: pd.DataFrame,
         management_df: pd.DataFrame,
         output_df: pd.DataFrame,
+        state_output_raw_df: Optional[pd.DataFrame] = None,
+        state_output_norm_df: Optional[pd.DataFrame] = None,
     ) -> None:
         weather = weather_df.copy()
         weather["point_id"] = weather["point_id"].astype(str)
@@ -248,6 +357,39 @@ class YearlySOMSCDataset(Dataset):
             key = (row.scenario_id, row.point_id, int(row.Year))
             self.december_somsc[key] = float(row.somsc)
 
+        self.december_soc_state_raw = {}
+        self.december_soc_state_norm = {}
+        if self.use_soc_state:
+            if state_output_raw_df is None or state_output_norm_df is None:
+                raise ValueError(
+                    "state_output_raw_df and state_output_norm_df are required "
+                    "when use_soc_state=True"
+                )
+
+            self.december_soc_state_raw = self._build_state_index(state_output_raw_df)
+            self.december_soc_state_norm = self._build_state_index(state_output_norm_df)
+
+    def _build_state_index(self, state_output_df: pd.DataFrame) -> Dict[tuple, np.ndarray]:
+        outputs = state_output_df.copy()
+        outputs["scenario_id"] = outputs["scenario_id"].astype(str)
+        outputs["point_id"] = outputs["point_id"].astype(str)
+        outputs["Year"] = outputs["Year"].astype(int)
+        outputs["month"] = outputs["month"].astype(int)
+
+        missing_cols = [col for col in SOC_STATE_COLS if col not in outputs.columns]
+        if missing_cols:
+            raise ValueError(f"State output is missing SOC columns: {missing_cols}")
+
+        december = outputs[outputs["month"] == TARGET_MONTH].copy()
+        state_index = {}
+        for row in december.itertuples(index=False):
+            key = (row.scenario_id, row.point_id, int(row.Year))
+            state_index[key] = np.asarray(
+                [getattr(row, col) for col in SOC_STATE_COLS],
+                dtype=np.float32,
+            )
+        return state_index
+
     def _resolve_init_condition_key(self, pid: str) -> Optional[Any]:
         try:
             pid_int = int(pid)
@@ -277,10 +419,23 @@ class YearlySOMSCDataset(Dataset):
                     if weather_key not in self.weather_index:
                         missing_weather += 1
                         continue
-                    if prev_key not in self.december_somsc:
+                    if self.use_soc_state:
+                        has_prev = (
+                            prev_key in self.december_soc_state_raw
+                            and prev_key in self.december_soc_state_norm
+                        )
+                        has_target = (
+                            target_key in self.december_soc_state_raw
+                            and target_key in self.december_soc_state_norm
+                        )
+                    else:
+                        has_prev = prev_key in self.december_somsc
+                        has_target = target_key in self.december_somsc
+
+                    if not has_prev:
                         missing_prev += 1
                         continue
-                    if target_key not in self.december_somsc:
+                    if not has_target:
                         missing_target += 1
                         continue
                     if self._resolve_init_condition_key(pid) is None:
@@ -322,21 +477,55 @@ class YearlySOMSCDataset(Dataset):
 
         init_key = self._resolve_init_condition_key(pid)
         init_cond = self.init_conditions.loc[init_key].to_numpy(dtype=np.float32)
-        prev_somsc = np.float32(self.december_somsc[(scenario_id, pid, year - 1)])
-        target_somsc = np.float32(self.december_somsc[(scenario_id, pid, year)])
         year_pe = self._year_pos_enc(year)
 
-        return {
+        item = {
             "sequence": torch.tensor(sequence, dtype=torch.float32),
             "init_cond": torch.tensor(init_cond, dtype=torch.float32),
             "year_enc": torch.tensor(year_pe, dtype=torch.float32),
-            "somsc": torch.tensor(target_somsc, dtype=torch.float32),
             "somsc_mask": torch.tensor(1.0, dtype=torch.float32),
-            "prev_somsc_state": torch.tensor(prev_somsc, dtype=torch.float32),
             "pid": pid,
             "year": str(year),
             "scenario_id": scenario_id,
         }
+        if self.use_soc_state:
+            prev_key = (scenario_id, pid, year - 1)
+            target_key = (scenario_id, pid, year)
+            prev_state_raw = self.december_soc_state_raw[prev_key]
+            prev_state_norm = self.december_soc_state_norm[prev_key]
+            target_state_raw = self.december_soc_state_raw[target_key]
+            delta_state_raw = target_state_raw - prev_state_raw
+            prev_somsc = np.float32(prev_state_raw[: len(SOMSC_SUM_COLS)].sum())
+            target_somsc = np.float32(target_state_raw[: len(SOMSC_SUM_COLS)].sum())
+
+            item.update(
+                {
+                    "prev_soc_state_raw": torch.tensor(
+                        prev_state_raw, dtype=torch.float32
+                    ),
+                    "prev_soc_state_norm": torch.tensor(
+                        prev_state_norm, dtype=torch.float32
+                    ),
+                    "target_soc_state_raw": torch.tensor(
+                        target_state_raw, dtype=torch.float32
+                    ),
+                    "soc_state_delta_raw": torch.tensor(
+                        delta_state_raw, dtype=torch.float32
+                    ),
+                    "somsc": torch.tensor(target_somsc, dtype=torch.float32),
+                    "prev_somsc_state": torch.tensor(prev_somsc, dtype=torch.float32),
+                }
+            )
+        else:
+            prev_somsc = np.float32(self.december_somsc[(scenario_id, pid, year - 1)])
+            target_somsc = np.float32(self.december_somsc[(scenario_id, pid, year)])
+            item.update(
+                {
+                    "somsc": torch.tensor(target_somsc, dtype=torch.float32),
+                    "prev_somsc_state": torch.tensor(prev_somsc, dtype=torch.float32),
+                }
+            )
+        return item
 
 
 def create_yearly_dataset(
@@ -344,6 +533,7 @@ def create_yearly_dataset(
     init_cond_path: str,
     split_config: Dict[str, Any],
     year_emb_dim: int = 16,
+    use_soc_state: bool = False,
 ) -> YearlySOMSCDataset:
     return YearlySOMSCDataset(
         weather_df=prepared_data["weather_df"],
@@ -352,6 +542,9 @@ def create_yearly_dataset(
         init_cond_path=init_cond_path,
         split_config=split_config,
         year_emb_dim=year_emb_dim,
+        use_soc_state=use_soc_state,
+        state_output_raw_df=prepared_data.get("state_output_raw_df"),
+        state_output_norm_df=prepared_data.get("state_output_norm_df"),
     )
 
 
@@ -367,6 +560,8 @@ def create_yearly_data_loaders(
     if not train_config:
         raise ValueError("Training split configuration must be specified")
 
+    use_soc_state = config.model.model_type == "yearly_somsc_state"
+
     if verbose:
         print("Creating yearly training dataset...")
     train_dataset = create_yearly_dataset(
@@ -374,6 +569,7 @@ def create_yearly_data_loaders(
         init_cond_path=config.data.init_cond_file,
         split_config=train_config,
         year_emb_dim=16,
+        use_soc_state=use_soc_state,
     )
     train_loader = DataLoader(
         train_dataset,
@@ -392,6 +588,7 @@ def create_yearly_data_loaders(
             init_cond_path=config.data.init_cond_file,
             split_config=val_config,
             year_emb_dim=16,
+            use_soc_state=use_soc_state,
         )
         val_loader = DataLoader(
             val_dataset,
@@ -411,6 +608,7 @@ def create_yearly_data_loaders(
             init_cond_path=config.data.init_cond_file,
             split_config=test_config,
             year_emb_dim=16,
+            use_soc_state=use_soc_state,
         )
         test_loader = DataLoader(
             test_dataset,
