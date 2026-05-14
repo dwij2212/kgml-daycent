@@ -4,7 +4,7 @@ description: "Pool-aware yearly December SOMSC state-space prediction from month
 data:
   base_dir: /projects/standard/kumarv/shared/daycent/new_data
   use_synthetic: true
-  max_workers: 4
+  max_workers: 1
   legacy_dir_structure: false
   experiment_number: 4
 

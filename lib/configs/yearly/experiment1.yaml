@@ -1,5 +1,5 @@
-experiment_id: yearly_december_somsc_v1
-description: "Yearly December SOMSC prediction from monthly weather and management aggregates"
+experiment_id: yearly_december_somsc_state_v1_small
+description: "Pool-aware yearly December SOMSC state prediction from monthly weather and management aggregates"
 
 data:
   base_dir: /projects/standard/kumarv/shared/daycent/new_data
@@ -46,7 +46,7 @@ data:
 
 
 model:
-  model_type: yearly_somsc
+  model_type: yearly_somsc_state
   hidden_dim: 64
   latent_dim: 32
   lstm_layers: 1
@@ -74,9 +74,10 @@ training:
 wandb:
   enabled: false
   project: daycent
-  name: yearly_december_somsc
-  notes: "Example config for the yearly December SOMSC model."
+  name: yearly_december_somsc_state_small
+  notes: "Smaller pool-aware yearly December SOMSC state model."
   tags:
     - yearly
     - somsc
+    - soc_state
     - monthly_aggregates

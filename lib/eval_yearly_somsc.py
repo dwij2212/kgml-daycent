@@ -1,15 +1,14 @@
 """
-Evaluation script for yearly December SOMSC experiments.
+Evaluation script for yearly December SOMSC state experiments.
 
 Usage:
-    python eval_yearly_somsc.py --config configs/yearly/december_somsc_example.yaml --split test
+    python eval_yearly_somsc.py --config configs/yearly/experiment_state_v1.yaml --split test
 """
 import argparse
 import os
 import random
 import sys
 
-import joblib
 import numpy as np
 import pandas as pd
 import torch
@@ -26,46 +25,6 @@ from utils import (
 )
 from utils.config import ExperimentConfig
 from utils.metrics import compute_grouped_masked_metrics, compute_regression_metrics
-
-
-def collect_predictions(model, loader, device):
-    """Run inference on a yearly data loader and collect all predictions."""
-    model.eval()
-
-    all_somsc_preds = []
-    all_somsc_trues = []
-    all_somsc_masks = []
-    all_metadata = []
-
-    print("Running yearly inference...")
-    for batch in tqdm(loader, desc="Inference"):
-        batch = move_batch_to_device(batch, device)
-
-        with torch.no_grad():
-            outputs = model(batch)
-
-        all_somsc_preds.append(outputs["somsc_pred"].cpu().numpy())
-        all_somsc_trues.append(batch["somsc"].cpu().numpy())
-        all_somsc_masks.append(batch["somsc_mask"].cpu().numpy())
-
-        batch_size = len(batch["pid"])
-        for idx in range(batch_size):
-            all_metadata.append(
-                {
-                    "scenario_id": batch["scenario_id"][idx]
-                    if isinstance(batch["scenario_id"], list)
-                    else batch["scenario_id"],
-                    "pid": batch["pid"][idx] if isinstance(batch["pid"], list) else batch["pid"],
-                    "year": batch["year"][idx] if isinstance(batch["year"], list) else batch["year"],
-                }
-            )
-
-    return {
-        "somsc_pred": np.concatenate(all_somsc_preds, axis=0),
-        "somsc_true": np.concatenate(all_somsc_trues, axis=0),
-        "somsc_mask": np.concatenate(all_somsc_masks, axis=0),
-        "metadata": all_metadata,
-    }
 
 
 def _batch_value_at(batch, key, idx):
@@ -285,45 +244,6 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
     return predictions
 
 
-def inverse_transform_predictions(predictions, scaler_path):
-    """Inverse-transform yearly SOMSC predictions back to the original scale."""
-    scaler_y = joblib.load(scaler_path)
-    somsc_mean = scaler_y.mean_[0]
-    somsc_scale = scaler_y.scale_[0]
-
-    print("\nInverse transforming yearly SOMSC predictions...")
-    print(f"  SOMSC - mean: {somsc_mean:.4f}, scale: {somsc_scale:.4f}")
-
-    return {
-        "somsc_pred": predictions["somsc_pred"] * somsc_scale + somsc_mean,
-        "somsc_true": predictions["somsc_true"] * somsc_scale + somsc_mean,
-        "somsc_mask": predictions["somsc_mask"],
-        "metadata": predictions["metadata"],
-    }
-
-
-def calculate_metrics(predictions):
-    """Calculate pooled and scenario-point averaged December SOMSC metrics."""
-    pooled_metrics = compute_masked_metrics(
-        predictions["somsc_true"],
-        predictions["somsc_pred"],
-        predictions["somsc_mask"],
-    )
-    scenario_point_avg = compute_grouped_masked_metrics(
-        predictions["somsc_true"],
-        predictions["somsc_pred"],
-        predictions["somsc_mask"],
-        group_keys=[
-            (meta["scenario_id"], meta["pid"])
-            for meta in predictions["metadata"]
-        ],
-    )
-    return {
-        **pooled_metrics,
-        "scenario_point_avg": scenario_point_avg,
-    }
-
-
 def calculate_state_metrics(predictions):
     """Calculate raw-unit metrics for state-model predictions."""
     somsc_level = compute_masked_metrics(
@@ -367,34 +287,6 @@ def calculate_state_metrics(predictions):
         "pool_delta": pool_delta,
         "scenario_point_avg": scenario_point_avg,
     }
-
-
-def print_metrics(metrics, split_name):
-    """Print evaluation metrics in a formatted table."""
-    print(f"\n{'=' * 80}")
-    print(f"YEARLY EVALUATION METRICS - {split_name.upper()} SET")
-    print(f"{'=' * 80}\n")
-    print("Pooled over all sample-years")
-    print(f"  December SOMSC samples: {metrics['n_samples']}")
-    print(f"  MSE:   {metrics['mse']:.4f}")
-    print(f"  RMSE:  {metrics['rmse']:.4f}")
-    print(f"  MAE:   {metrics['mae']:.4f}")
-    print(f"  R2:    {metrics['r2']:.4f}")
-
-    scenario_point_avg = metrics.get("scenario_point_avg")
-    if scenario_point_avg is not None:
-        print("\nAverage of per-(scenario_id, pid) metrics")
-        print(f"  Scenario-point groups: {scenario_point_avg['n_groups']}")
-        print(f"  Total valid samples:   {scenario_point_avg['n_samples_total']}")
-        print(
-            "  Mean samples/group:   "
-            f"{scenario_point_avg['mean_samples_per_group']:.2f}"
-        )
-        print(f"  MSE:   {scenario_point_avg['mse']:.4f}")
-        print(f"  RMSE:  {scenario_point_avg['rmse']:.4f}")
-        print(f"  MAE:   {scenario_point_avg['mae']:.4f}")
-        print(f"  R2:    {scenario_point_avg['r2']:.4f}")
-    print(f"\n{'=' * 80}\n")
 
 
 def _print_metric_block(title, metrics):
@@ -584,28 +476,6 @@ def generate_sample_plots(predictions, plots_dir, num_scenarios=5, num_points_pe
     print(f"{'=' * 80}\n")
 
 
-def save_predictions_to_csv(predictions, output_path):
-    """Save yearly predictions to CSV for further analysis."""
-    print(f"\nSaving yearly predictions to CSV: {output_path}")
-
-    rows = []
-    for idx, meta in enumerate(predictions["metadata"]):
-        rows.append(
-            {
-                "scenario_id": meta["scenario_id"],
-                "point_id": meta["pid"],
-                "year": meta["year"],
-                "somsc_pred_dec": predictions["somsc_pred"][idx],
-                "somsc_true_dec": predictions["somsc_true"][idx],
-                "somsc_mask_dec": predictions["somsc_mask"][idx],
-            }
-        )
-
-    df = pd.DataFrame(rows)
-    df.to_csv(output_path, index=False)
-    print(f"  Saved {len(df)} yearly predictions")
-
-
 def save_state_predictions_to_csv(predictions, output_path):
     """Save state-model predictions and pool diagnostics to CSV."""
     print(f"\nSaving yearly state predictions to CSV: {output_path}")
@@ -656,6 +526,12 @@ def evaluate_experiment(
     print(f"Evaluation mode: {eval_mode}")
     print(f"{'=' * 80}\n")
 
+    if config.model.model_type != "yearly_somsc_state":
+        raise ValueError(
+            "The yearly evaluation pipeline now only supports "
+            "model.model_type='yearly_somsc_state'."
+        )
+
     print("Step 1: Preparing yearly data...")
     if prepared_data is None:
         prepared_data = prepare_yearly_data(config)
@@ -677,7 +553,9 @@ def evaluate_experiment(
         }
         for split_obj in [config.data.train, config.data.val, config.data.test]:
             if split_obj:
-                split_config["points"].extend(split_obj.get_point_ids(config.data.points_lookup))
+                split_config["points"].extend(
+                    split_obj.get_point_ids(config.data.points_lookup)
+                )
                 split_config["years"].extend(split_obj.get_years())
         split_config["points"] = sorted(list(set(split_config["points"])))
         split_config["years"] = sorted(list(set(split_config["years"])))
@@ -687,14 +565,11 @@ def evaluate_experiment(
     if not split_config:
         raise ValueError(f"No configuration found for split: {split}")
 
-    use_soc_state = config.model.model_type == "yearly_somsc_state"
-
     dataset = create_yearly_dataset(
         prepared_data=prepared_data,
         init_cond_path=config.data.init_cond_file,
         split_config=split_config,
         year_emb_dim=16,
-        use_soc_state=use_soc_state,
     )
     if len(dataset) == 0:
         raise ValueError(f"Yearly dataset for split '{split}' is empty.")
@@ -726,42 +601,6 @@ def evaluate_experiment(
     print(f"  Model loaded from: {model_path}")
     print(f"  Device: {device}")
 
-    if not use_soc_state:
-        if eval_mode not in {"teacher_forced", "both"}:
-            raise ValueError(
-                "Only teacher_forced evaluation is available for the legacy yearly_somsc model."
-            )
-
-        print("\nStep 4: Collecting yearly predictions...")
-        predictions = collect_predictions(model, loader, device)
-
-        print("\nStep 5: Inverse transforming to original scale...")
-        # predictions = inverse_transform_predictions(predictions, config.get_scaler_path())
-
-        print("\nStep 6: Calculating metrics...")
-        metrics = calculate_metrics(predictions)
-        print_metrics(metrics, split)
-
-        if save_csv:
-            print("\nStep 7: Saving yearly predictions...")
-            csv_path = os.path.join(config.output_dir, f"{split}_yearly_predictions.csv")
-            save_predictions_to_csv(predictions, csv_path)
-
-        print("\nStep 8: Generating yearly sample plots...")
-        plots_dir = os.path.join(config.plots_dir, f"yearly_{split}")
-        generate_sample_plots(
-            predictions,
-            plots_dir,
-            num_scenarios=num_samples,
-            num_points_per_scenario=3,
-        )
-
-        print(f"\n{'=' * 80}")
-        print("YEARLY EVALUATION COMPLETE!")
-        print(f"{'=' * 80}\n")
-
-        return {"metrics": metrics, "predictions": predictions}
-
     modes = ["teacher_forced", "rollout"] if eval_mode == "both" else [eval_mode]
     invalid_modes = sorted(set(modes) - {"teacher_forced", "rollout"})
     if invalid_modes:
@@ -774,7 +613,9 @@ def evaluate_experiment(
             predictions = collect_state_predictions(model, loader, device)
         else:
             if "state_input_scaler" not in prepared_data:
-                raise ValueError("Rollout evaluation requires prepared_data['state_input_scaler'].")
+                raise ValueError(
+                    "Rollout evaluation requires prepared_data['state_input_scaler']."
+                )
             predictions = collect_state_rollout_predictions(
                 model,
                 dataset,
@@ -814,7 +655,9 @@ def evaluate_experiment(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Evaluate yearly December SOMSC experiment")
+    parser = argparse.ArgumentParser(
+        description="Evaluate yearly December SOMSC state experiment"
+    )
     parser.add_argument(
         "--config",
         type=str,

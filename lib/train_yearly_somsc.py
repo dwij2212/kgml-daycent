@@ -1,5 +1,5 @@
 """
-Training script for the yearly December SOMSC model.
+Training script for the yearly December SOMSC state model.
 """
 import argparse
 import os
@@ -25,31 +25,7 @@ from utils.training import (
 from utils.optim import create_optimizer_and_scheduler
 
 
-YEARLY_ABS_ANCHOR_WEIGHT = 0.05
 MIN_DELTA_STD = 1e-6
-
-
-def compute_train_delta_std(dataset) -> float:
-    """
-    Estimate the December-to-December SOMSC delta scale from the training split.
-
-    The yearly objective is MSE on normalized deltas, so only the delta
-    standard deviation matters here. Centering would cancel out in a symmetric
-    MSE term because it would be applied to both prediction and target.
-    """
-    deltas = np.asarray(
-        [
-            dataset.december_somsc[(scenario_id, pid, year)]
-            - dataset.december_somsc[(scenario_id, pid, year - 1)]
-            for scenario_id, pid, year in dataset.samples
-        ],
-        dtype=np.float32,
-    )
-    if deltas.size == 0:
-        raise ValueError("Cannot compute yearly delta scale from an empty training dataset.")
-
-    delta_std = float(deltas.std())
-    return max(delta_std, MIN_DELTA_STD)
 
 
 def compute_train_soc_state_scales(dataset) -> dict:
@@ -89,27 +65,7 @@ def compute_train_soc_state_scales(dataset) -> dict:
     }
 
 
-def compute_yearly_somsc_loss(
-    outputs,
-    batch,
-    delta_std: float,
-    abs_weight: float = YEARLY_ABS_ANCHOR_WEIGHT,
-):
-    pred = outputs["somsc_pred"].reshape(-1)
-    target = batch["somsc"].reshape(-1)
-    prev = batch["prev_somsc_state"].reshape(-1)
-    mask = batch["somsc_mask"].reshape(-1)
-
-    delta_pred = pred - prev
-    delta_true = target - prev
-    delta_scale = torch.as_tensor(delta_std, dtype=pred.dtype, device=pred.device)
-
-    loss_delta = compute_masked_mse(delta_pred / delta_scale, delta_true / delta_scale, mask)
-    loss_abs = compute_masked_mse(pred, target, mask)
-    return loss_delta + abs_weight * loss_abs
-
-
-def compute_yearly_soc_state_loss(
+def compute_yearly_loss(
     outputs,
     batch,
     pool_delta_std,
@@ -161,21 +117,13 @@ def compute_yearly_soc_state_loss(
     return pool_delta_loss + 0.5 * somsc_delta_loss + 0.05 * somsc_abs_anchor_loss
 
 
-def compute_yearly_loss(outputs, batch, loss_context: dict):
-    if loss_context.get("use_soc_state"):
-        return compute_yearly_soc_state_loss(
-            outputs,
-            batch,
-            pool_delta_std=loss_context["pool_delta_std"],
-            somsc_delta_std=loss_context["somsc_delta_std"],
-            somsc_level_std=loss_context["somsc_level_std"],
-        )
-
-    return compute_yearly_somsc_loss(
+def compute_loss_from_context(outputs, batch, loss_context: dict):
+    return compute_yearly_loss(
         outputs,
         batch,
-        delta_std=loss_context["delta_std"],
-        abs_weight=loss_context.get("abs_weight", YEARLY_ABS_ANCHOR_WEIGHT),
+        pool_delta_std=loss_context["pool_delta_std"],
+        somsc_delta_std=loss_context["somsc_delta_std"],
+        somsc_level_std=loss_context["somsc_level_std"],
     )
 
 
@@ -201,7 +149,7 @@ def evaluate_yearly(model, loader, device, loss_context: dict):
         for batch in loader:
             batch = move_batch_to_device(batch, device)
             outputs = model(batch)
-            loss = compute_yearly_loss(outputs, batch, loss_context)
+            loss = compute_loss_from_context(outputs, batch, loss_context)
 
             batch_size = batch["sequence"].size(0)
             total_loss += loss.item() * batch_size
@@ -230,7 +178,7 @@ def train_epoch(
 
         optimizer.zero_grad()
         outputs = model(batch)
-        loss = compute_yearly_loss(outputs, batch, loss_context)
+        loss = compute_loss_from_context(outputs, batch, loss_context)
         loss.backward()
         grad_clipper(model.parameters())
         optimizer.step()
@@ -249,6 +197,12 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
     print(f"Description: {config.description}")
     print(f"{'=' * 80}\n")
 
+    if config.model.model_type != "yearly_somsc_state":
+        raise ValueError(
+            "The yearly training pipeline now only supports "
+            "model.model_type='yearly_somsc_state'."
+        )
+
     print("Step 1: Preparing yearly data...")
     if prepared_data is None:
         prepared_data = prepare_yearly_data(config)
@@ -265,23 +219,12 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
     if len(dataset) == 0:
         raise ValueError("Yearly training dataset is empty after filtering invalid samples.")
 
-    use_soc_state = config.model.model_type == "yearly_somsc_state"
-    if use_soc_state:
-        soc_scales = compute_train_soc_state_scales(dataset)
-        loss_context = {"use_soc_state": True, **soc_scales}
-        print("  Training SOC state delta stds (raw units):")
-        for name, scale in zip(SOC_STATE_COLS, soc_scales["pool_delta_std"]):
-            print(f"    {name}: {float(scale):.6f}")
-        print(f"  Training SOMSC delta std (raw units): {soc_scales['somsc_delta_std']:.6f}")
-        print(f"  Training SOMSC level std (raw units): {soc_scales['somsc_level_std']:.6f}")
-    else:
-        delta_std = compute_train_delta_std(dataset)
-        loss_context = {
-            "use_soc_state": False,
-            "delta_std": delta_std,
-            "abs_weight": YEARLY_ABS_ANCHOR_WEIGHT,
-        }
-        print(f"  Training delta std (normalized SOMSC space): {delta_std:.6f}")
+    loss_context = compute_train_soc_state_scales(dataset)
+    print("  Training SOC state delta stds (raw units):")
+    for name, scale in zip(SOC_STATE_COLS, loss_context["pool_delta_std"]):
+        print(f"    {name}: {float(scale):.6f}")
+    print(f"  Training SOMSC delta std (raw units): {loss_context['somsc_delta_std']:.6f}")
+    print(f"  Training SOMSC level std (raw units): {loss_context['somsc_level_std']:.6f}")
 
     print("\nStep 4: Initializing yearly model...")
     sample = dataset[0]
@@ -342,22 +285,22 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
         )
 
         if val_loader:
-            val_somsc_loss = evaluate_yearly(model, val_loader, device, loss_context)
+            val_loss = evaluate_yearly(model, val_loader, device, loss_context)
         else:
-            val_somsc_loss = 0.0
+            val_loss = 0.0
 
         if scheduler and not step_scheduler_per_batch:
-            scheduler.step(val_somsc_loss if val_loader else train_loss)
+            scheduler.step(val_loss if val_loader else train_loss)
 
         current_lr = optimizer.param_groups[0]["lr"]
         print(f"Epoch {epoch + 1}/{config.training.epochs} | LR: {current_lr:.2e}")
-        print(f"  Train SOMSC Loss: {train_loss:.4f}")
+        print(f"  Train yearly state loss: {train_loss:.4f}")
         if val_loader:
-            print(f"  Val SOMSC Loss:   {val_somsc_loss:.4f}")
+            print(f"  Val yearly state loss:   {val_loss:.4f}")
 
         if val_loader:
             saved = checkpoint_manager.save(
-                value=val_somsc_loss,
+                value=val_loss,
                 epoch=epoch,
                 extra_state={
                     "optimizer_state_dict": optimizer.state_dict(),
@@ -367,17 +310,17 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
             )
             if saved:
                 patience_counter = 0
-                print(f"  Saved best model (val_somsc_loss: {val_somsc_loss:.4f})")
+                print(f"  Saved best model (val_yearly_state_loss: {val_loss:.4f})")
             else:
                 patience_counter += 1
 
         log_dict = {
             "epoch": epoch + 1,
-            "train_somsc_loss": train_loss,
+            "train_yearly_state_loss": train_loss,
             "learning_rate": current_lr,
         }
         if val_loader:
-            log_dict["val_somsc_loss"] = val_somsc_loss
+            log_dict["val_yearly_state_loss"] = val_loss
         wandb_logger.log(log_dict)
 
         if val_loader and patience_counter >= config.training.patience:
@@ -392,19 +335,21 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
         if val_loader and checkpoint_manager.best_value < float("inf"):
             checkpoint_manager.load_best()
 
-        test_somsc_loss = evaluate_yearly(model, test_loader, device, loss_context)
-        print(f"  Test December SOMSC Loss: {test_somsc_loss:.4f}")
+        test_loss = evaluate_yearly(model, test_loader, device, loss_context)
+        print(f"  Test yearly state loss: {test_loss:.4f}")
 
     wandb_logger.finish()
 
     print(f"\n{'=' * 80}")
-    print("Yearly SOMSC training complete!")
+    print("Yearly SOMSC state training complete!")
     print(f"Best model saved to: {config.get_model_path()}")
     print(f"{'=' * 80}\n")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Train yearly December SOMSC model")
+    parser = argparse.ArgumentParser(
+        description="Train yearly December SOMSC state model"
+    )
     parser.add_argument(
         "--config",
         type=str,
