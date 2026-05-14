@@ -35,7 +35,7 @@ def _batch_value_at(batch, key, idx):
 
 
 def collect_state_predictions(model, loader, device):
-    """Run teacher-forced state-model inference and collect raw-unit outputs."""
+    """Run teacher-forced yearly inference and collect raw-unit outputs."""
     model.eval()
 
     predictions = {
@@ -45,16 +45,16 @@ def collect_state_predictions(model, loader, device):
         "somsc_delta_pred": [],
         "somsc_delta_true": [],
         "somsc_persistence_pred": [],
-        "soc_state_pred": [],
-        "soc_state_true": [],
-        "soc_state_delta_pred": [],
-        "soc_state_delta_true": [],
-        "prev_soc_state_true": [],
         "metadata": [],
         "eval_mode": "teacher_forced",
+        "target_mode": getattr(model, "target_mode", "pool_deltas"),
+        "prev_state_context": getattr(model, "prev_state_context", "target_pools"),
+        "target_pool_cols": getattr(model, "target_pool_cols", SOC_STATE_COLS),
     }
 
-    print("Running yearly state inference (teacher_forced)...")
+    state_keys_initialized = False
+
+    print("Running yearly inference (teacher_forced)...")
     for batch in tqdm(loader, desc="Inference"):
         batch = move_batch_to_device(batch, device)
 
@@ -62,25 +62,40 @@ def collect_state_predictions(model, loader, device):
             outputs = model(batch)
 
         prev_somsc = batch["prev_somsc_state"]
+        somsc_delta_pred = outputs.get("somsc_delta_pred")
+        if somsc_delta_pred is None:
+            somsc_delta_pred = outputs["somsc_pred"] - prev_somsc
+
         predictions["somsc_pred"].append(outputs["somsc_pred"].cpu().numpy())
         predictions["somsc_true"].append(batch["somsc"].cpu().numpy())
         predictions["somsc_mask"].append(batch["somsc_mask"].cpu().numpy())
-        predictions["somsc_delta_pred"].append(
-            (outputs["somsc_pred"] - prev_somsc).cpu().numpy()
-        )
+        predictions["somsc_delta_pred"].append(somsc_delta_pred.cpu().numpy())
         predictions["somsc_delta_true"].append(
             (batch["somsc"] - prev_somsc).cpu().numpy()
         )
         predictions["somsc_persistence_pred"].append(prev_somsc.cpu().numpy())
-        predictions["soc_state_pred"].append(outputs["soc_state_pred"].cpu().numpy())
-        predictions["soc_state_true"].append(batch["target_soc_state_raw"].cpu().numpy())
-        predictions["soc_state_delta_pred"].append(
-            outputs["soc_state_delta_pred"].cpu().numpy()
-        )
-        predictions["soc_state_delta_true"].append(
-            batch["soc_state_delta_raw"].cpu().numpy()
-        )
-        predictions["prev_soc_state_true"].append(batch["prev_soc_state_raw"].cpu().numpy())
+
+        if "soc_state_pred" in outputs:
+            if not state_keys_initialized:
+                predictions["soc_state_pred"] = []
+                predictions["soc_state_true"] = []
+                predictions["soc_state_delta_pred"] = []
+                predictions["soc_state_delta_true"] = []
+                predictions["prev_soc_state_true"] = []
+                state_keys_initialized = True
+            predictions["soc_state_pred"].append(outputs["soc_state_pred"].cpu().numpy())
+            predictions["soc_state_true"].append(
+                batch["target_soc_state_raw"].cpu().numpy()
+            )
+            predictions["soc_state_delta_pred"].append(
+                outputs["soc_state_delta_pred"].cpu().numpy()
+            )
+            predictions["soc_state_delta_true"].append(
+                batch["soc_state_delta_raw"].cpu().numpy()
+            )
+            predictions["prev_soc_state_true"].append(
+                batch["prev_soc_state_raw"].cpu().numpy()
+            )
 
         batch_size = len(batch["pid"])
         for idx in range(batch_size):
@@ -99,13 +114,18 @@ def collect_state_predictions(model, loader, device):
         "somsc_delta_pred",
         "somsc_delta_true",
         "somsc_persistence_pred",
+    ]:
+        predictions[key] = np.concatenate(predictions[key], axis=0)
+
+    for key in [
         "soc_state_pred",
         "soc_state_true",
         "soc_state_delta_pred",
         "soc_state_delta_true",
         "prev_soc_state_true",
     ]:
-        predictions[key] = np.concatenate(predictions[key], axis=0)
+        if key in predictions:
+            predictions[key] = np.concatenate(predictions[key], axis=0)
 
     return predictions
 
@@ -124,7 +144,19 @@ def _normalize_state(state_raw: np.ndarray, state_input_scaler) -> np.ndarray:
     return state_input_scaler.transform(state_raw.reshape(1, -1))[0].astype(np.float32)
 
 
-def collect_state_rollout_predictions(model, dataset, device, state_input_scaler):
+def _normalize_somsc(value: float, somsc_input_scaler) -> np.float32:
+    return np.float32(
+        somsc_input_scaler.transform(np.asarray([[value]], dtype=np.float32))[0, 0]
+    )
+
+
+def collect_state_rollout_predictions(
+    model,
+    dataset,
+    device,
+    state_input_scaler,
+    somsc_input_scaler,
+):
     """
     Roll out one continuous trajectory per scenario-point.
 
@@ -132,6 +164,15 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
     samples feed the model's predicted state forward.
     """
     model.eval()
+    target_mode = getattr(model, "target_mode", "pool_deltas")
+    prev_state_context = getattr(model, "prev_state_context", "target_pools")
+    if target_mode == "somsc_delta" and prev_state_context != "somsc":
+        raise ValueError(
+            "Rollout for scalar SOMSC-delta models is only defined when "
+            "model.prev_state_context='somsc'. Full-pool scalar models need "
+            "teacher-forced true previous pools."
+        )
+
     predictions = {
         "somsc_pred": [],
         "somsc_true": [],
@@ -139,14 +180,18 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
         "somsc_delta_pred": [],
         "somsc_delta_true": [],
         "somsc_persistence_pred": [],
-        "soc_state_pred": [],
-        "soc_state_true": [],
-        "soc_state_delta_pred": [],
-        "soc_state_delta_true": [],
-        "prev_soc_state_true": [],
         "metadata": [],
         "eval_mode": "rollout",
+        "target_mode": target_mode,
+        "prev_state_context": prev_state_context,
+        "target_pool_cols": getattr(model, "target_pool_cols", SOC_STATE_COLS),
     }
+    if target_mode == "pool_deltas":
+        predictions["soc_state_pred"] = []
+        predictions["soc_state_true"] = []
+        predictions["soc_state_delta_pred"] = []
+        predictions["soc_state_delta_true"] = []
+        predictions["prev_soc_state_true"] = []
 
     grouped_indices = {}
     for idx, (scenario_id, pid, year) in enumerate(dataset.samples):
@@ -158,20 +203,44 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
         desc="Rollout trajectories",
     ):
         current_state_raw = None
+        current_somsc = None
         for _, sample_idx in sorted(year_indices):
             sample = dataset[sample_idx]
             true_prev_state = sample["prev_soc_state_raw"].numpy().astype(np.float32)
+            true_prev_somsc = sample["prev_somsc_state"].reshape(-1)
 
-            if current_state_raw is None:
+            if target_mode == "pool_deltas" and current_state_raw is None:
                 input_prev_state_raw = true_prev_state
                 input_prev_state_norm = sample["prev_soc_state_norm"].numpy().astype(
                     np.float32
                 )
-            else:
+                input_prev_somsc = float(input_prev_state_raw[:3].sum())
+                input_prev_somsc_norm = float(sample["prev_somsc_norm"].item())
+            elif target_mode == "pool_deltas":
                 input_prev_state_raw = current_state_raw.astype(np.float32)
                 input_prev_state_norm = _normalize_state(
                     input_prev_state_raw,
                     state_input_scaler,
+                )
+                input_prev_somsc = float(input_prev_state_raw[:3].sum())
+                input_prev_somsc_norm = float(
+                    _normalize_somsc(input_prev_somsc, somsc_input_scaler)
+                )
+            elif current_somsc is None:
+                input_prev_state_raw = true_prev_state
+                input_prev_state_norm = sample["prev_soc_state_norm"].numpy().astype(
+                    np.float32
+                )
+                input_prev_somsc = float(sample["prev_somsc_state"].item())
+                input_prev_somsc_norm = float(sample["prev_somsc_norm"].item())
+            else:
+                input_prev_state_raw = true_prev_state
+                input_prev_state_norm = sample["prev_soc_state_norm"].numpy().astype(
+                    np.float32
+                )
+                input_prev_somsc = float(current_somsc)
+                input_prev_somsc_norm = float(
+                    _normalize_somsc(input_prev_somsc, somsc_input_scaler)
                 )
 
             batch = _tensorize_single_sample(sample)
@@ -184,7 +253,11 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
                 dtype=torch.float32,
             ).unsqueeze(0)
             batch["prev_somsc_state"] = torch.tensor(
-                input_prev_state_raw[:3].sum(),
+                input_prev_somsc,
+                dtype=torch.float32,
+            ).unsqueeze(0)
+            batch["prev_somsc_norm"] = torch.tensor(
+                input_prev_somsc_norm,
                 dtype=torch.float32,
             ).unsqueeze(0)
             batch = move_batch_to_device(batch, device)
@@ -192,32 +265,41 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
             with torch.no_grad():
                 outputs = model(batch)
 
-            current_state_raw = outputs["soc_state_pred"].squeeze(0).cpu().numpy()
+            if target_mode == "pool_deltas":
+                current_state_raw = outputs["soc_state_pred"].squeeze(0).cpu().numpy()
+            else:
+                current_somsc = float(outputs["somsc_pred"].squeeze(0).cpu().item())
 
-            true_prev_somsc = sample["prev_somsc_state"].reshape(-1)
+            somsc_delta_pred = outputs.get("somsc_delta_pred")
+            if somsc_delta_pred is None:
+                somsc_delta_pred = outputs["somsc_pred"] - batch["prev_somsc_state"]
+
             predictions["somsc_pred"].append(outputs["somsc_pred"].cpu().numpy())
             predictions["somsc_true"].append(sample["somsc"].reshape(1).numpy())
             predictions["somsc_mask"].append(sample["somsc_mask"].reshape(1).numpy())
-            predictions["somsc_delta_pred"].append(
-                outputs["soc_state_delta_pred"][:, :3].sum(dim=-1).cpu().numpy()
-            )
+            predictions["somsc_delta_pred"].append(somsc_delta_pred.cpu().numpy())
             predictions["somsc_delta_true"].append(
                 (sample["somsc"].reshape(1) - true_prev_somsc).numpy()
             )
-            predictions["somsc_persistence_pred"].append(true_prev_somsc.numpy())
-            predictions["soc_state_pred"].append(outputs["soc_state_pred"].cpu().numpy())
-            predictions["soc_state_true"].append(
-                sample["target_soc_state_raw"].unsqueeze(0).numpy()
+            predictions["somsc_persistence_pred"].append(
+                np.asarray([input_prev_somsc], dtype=np.float32)
             )
-            predictions["soc_state_delta_pred"].append(
-                outputs["soc_state_delta_pred"].cpu().numpy()
-            )
-            predictions["soc_state_delta_true"].append(
-                sample["soc_state_delta_raw"].unsqueeze(0).numpy()
-            )
-            predictions["prev_soc_state_true"].append(
-                sample["prev_soc_state_raw"].unsqueeze(0).numpy()
-            )
+            if target_mode == "pool_deltas":
+                predictions["soc_state_pred"].append(
+                    outputs["soc_state_pred"].cpu().numpy()
+                )
+                predictions["soc_state_true"].append(
+                    sample["target_soc_state_raw"].unsqueeze(0).numpy()
+                )
+                predictions["soc_state_delta_pred"].append(
+                    outputs["soc_state_delta_pred"].cpu().numpy()
+                )
+                predictions["soc_state_delta_true"].append(
+                    sample["soc_state_delta_raw"].unsqueeze(0).numpy()
+                )
+                predictions["prev_soc_state_true"].append(
+                    sample["prev_soc_state_raw"].unsqueeze(0).numpy()
+                )
             predictions["metadata"].append(
                 {
                     "scenario_id": sample["scenario_id"],
@@ -233,13 +315,18 @@ def collect_state_rollout_predictions(model, dataset, device, state_input_scaler
         "somsc_delta_pred",
         "somsc_delta_true",
         "somsc_persistence_pred",
+    ]:
+        predictions[key] = np.concatenate(predictions[key], axis=0)
+
+    for key in [
         "soc_state_pred",
         "soc_state_true",
         "soc_state_delta_pred",
         "soc_state_delta_true",
         "prev_soc_state_true",
     ]:
-        predictions[key] = np.concatenate(predictions[key], axis=0)
+        if key in predictions:
+            predictions[key] = np.concatenate(predictions[key], axis=0)
 
     return predictions
 
@@ -263,12 +350,15 @@ def calculate_state_metrics(predictions):
     )
 
     pool_delta = {}
-    mask = predictions["somsc_mask"].reshape(-1).astype(bool)
-    for idx, name in enumerate(SOC_STATE_COLS):
-        pool_delta[name] = compute_regression_metrics(
-            predictions["soc_state_delta_true"][mask, idx],
-            predictions["soc_state_delta_pred"][mask, idx],
-        )
+    if "soc_state_delta_true" in predictions and "soc_state_delta_pred" in predictions:
+        mask = predictions["somsc_mask"].reshape(-1).astype(bool)
+        target_pool_cols = predictions.get("target_pool_cols", SOC_STATE_COLS)
+        for name in target_pool_cols:
+            idx = SOC_STATE_COLS.index(name)
+            pool_delta[name] = compute_regression_metrics(
+                predictions["soc_state_delta_true"][mask, idx],
+                predictions["soc_state_delta_pred"][mask, idx],
+            )
 
     scenario_point_avg = compute_grouped_masked_metrics(
         predictions["somsc_true"],
@@ -313,12 +403,13 @@ def print_state_metrics(metrics, split_name, eval_mode):
     print()
     _print_metric_block("Persistence baseline (previous true SOMSC)", metrics["persistence"])
 
-    print("\nPool annual deltas")
-    for name, pool_metrics in metrics["pool_delta"].items():
-        print(
-            f"  {name}: RMSE={pool_metrics['rmse']:.4f}, "
-            f"MAE={pool_metrics['mae']:.4f}, R2={pool_metrics['r2']:.4f}"
-        )
+    if metrics["pool_delta"]:
+        print("\nPool annual deltas")
+        for name, pool_metrics in metrics["pool_delta"].items():
+            print(
+                f"  {name}: RMSE={pool_metrics['rmse']:.4f}, "
+                f"MAE={pool_metrics['mae']:.4f}, R2={pool_metrics['r2']:.4f}"
+            )
 
     scenario_point_avg = metrics.get("scenario_point_avg")
     if scenario_point_avg is not None:
@@ -487,6 +578,11 @@ def save_state_predictions_to_csv(predictions, output_path):
             "point_id": meta["pid"],
             "year": meta["year"],
             "eval_mode": predictions.get("eval_mode", "teacher_forced"),
+            "target_mode": predictions.get("target_mode", "pool_deltas"),
+            "prev_state_context": predictions.get("prev_state_context", "target_pools"),
+            "target_pool_cols": ",".join(
+                predictions.get("target_pool_cols", SOC_STATE_COLS)
+            ),
             "somsc_pred": predictions["somsc_pred"][idx],
             "somsc_true": predictions["somsc_true"][idx],
             "somsc_delta_pred": predictions["somsc_delta_pred"][idx],
@@ -494,15 +590,16 @@ def save_state_predictions_to_csv(predictions, output_path):
             "somsc_persistence_pred": predictions["somsc_persistence_pred"][idx],
             "somsc_mask": predictions["somsc_mask"][idx],
         }
-        for pool_idx, pool_name in enumerate(SOC_STATE_COLS):
-            row[f"{pool_name}_pred"] = predictions["soc_state_pred"][idx, pool_idx]
-            row[f"{pool_name}_true"] = predictions["soc_state_true"][idx, pool_idx]
-            row[f"{pool_name}_delta_pred"] = predictions["soc_state_delta_pred"][
-                idx, pool_idx
-            ]
-            row[f"{pool_name}_delta_true"] = predictions["soc_state_delta_true"][
-                idx, pool_idx
-            ]
+        if "soc_state_pred" in predictions:
+            for pool_idx, pool_name in enumerate(SOC_STATE_COLS):
+                row[f"{pool_name}_pred"] = predictions["soc_state_pred"][idx, pool_idx]
+                row[f"{pool_name}_true"] = predictions["soc_state_true"][idx, pool_idx]
+                row[f"{pool_name}_delta_pred"] = predictions["soc_state_delta_pred"][
+                    idx, pool_idx
+                ]
+                row[f"{pool_name}_delta_true"] = predictions["soc_state_delta_true"][
+                    idx, pool_idx
+                ]
         rows.append(row)
 
     df = pd.DataFrame(rows)
@@ -612,15 +709,17 @@ def evaluate_experiment(
         if mode == "teacher_forced":
             predictions = collect_state_predictions(model, loader, device)
         else:
-            if "state_input_scaler" not in prepared_data:
+            if "state_input_scaler" not in prepared_data or "somsc_input_scaler" not in prepared_data:
                 raise ValueError(
-                    "Rollout evaluation requires prepared_data['state_input_scaler']."
+                    "Rollout evaluation requires prepared_data['state_input_scaler'] "
+                    "and prepared_data['somsc_input_scaler']."
                 )
             predictions = collect_state_rollout_predictions(
                 model,
                 dataset,
                 device,
                 prepared_data["state_input_scaler"],
+                prepared_data["somsc_input_scaler"],
             )
 
         print("\nStep 5: Calculating state metrics...")

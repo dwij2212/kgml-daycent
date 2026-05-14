@@ -41,6 +41,13 @@ data:
 
 model:
   model_type: yearly_somsc_state
+  target_mode: pool_deltas
+  prev_state_context: target_pools
+  target_pool_cols:
+    - som1c_soil
+    - som2c_soil
+    - som3c
+    - som2c_surface
   hidden_dim: 96
   latent_dim: 48
   lstm_layers: 1

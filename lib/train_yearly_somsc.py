@@ -26,10 +26,42 @@ from utils.optim import create_optimizer_and_scheduler
 
 
 MIN_DELTA_STD = 1e-6
+VALID_TARGET_MODES = {"pool_deltas", "somsc_delta"}
 
 
-def compute_train_soc_state_scales(dataset) -> dict:
+def get_target_mode(model_config) -> str:
+    target_mode = getattr(model_config, "target_mode", "pool_deltas")
+    if target_mode not in VALID_TARGET_MODES:
+        raise ValueError(
+            f"model.target_mode must be one of {sorted(VALID_TARGET_MODES)}, "
+            f"got {target_mode!r}."
+        )
+    return target_mode
+
+
+def get_target_pool_cols(model_config) -> list:
+    pool_cols = getattr(model_config, "target_pool_cols", None)
+    if pool_cols is None:
+        return list(SOC_STATE_COLS)
+
+    unknown = [col for col in pool_cols if col not in SOC_STATE_COLS]
+    if unknown:
+        raise ValueError(f"Unknown target pool columns: {unknown}")
+    if not pool_cols:
+        raise ValueError("model.target_pool_cols cannot be empty.")
+    return list(pool_cols)
+
+
+def get_target_pool_indices(model_config) -> list:
+    return [SOC_STATE_COLS.index(col) for col in get_target_pool_cols(model_config)]
+
+
+def compute_train_yearly_scales(dataset, model_config) -> dict:
     """Estimate raw-unit pool and aggregate SOMSC scales from training samples."""
+    target_mode = get_target_mode(model_config)
+    target_pool_cols = get_target_pool_cols(model_config)
+    target_pool_indices = get_target_pool_indices(model_config)
+
     pool_deltas = []
     somsc_deltas = []
     somsc_levels = []
@@ -40,7 +72,7 @@ def compute_train_soc_state_scales(dataset) -> dict:
         prev_state = dataset.december_soc_state_raw[prev_key]
         target_state = dataset.december_soc_state_raw[target_key]
 
-        pool_delta = target_state - prev_state
+        pool_delta = target_state[target_pool_indices] - prev_state[target_pool_indices]
         prev_somsc = prev_state[:3].sum()
         target_somsc = target_state[:3].sum()
 
@@ -48,57 +80,45 @@ def compute_train_soc_state_scales(dataset) -> dict:
         somsc_deltas.append(target_somsc - prev_somsc)
         somsc_levels.append(target_somsc)
 
-    if not pool_deltas:
-        raise ValueError("Cannot compute SOC state scales from an empty training dataset.")
+    if not somsc_deltas:
+        raise ValueError("Cannot compute yearly scales from an empty training dataset.")
 
     pool_deltas = np.asarray(pool_deltas, dtype=np.float32)
     somsc_deltas = np.asarray(somsc_deltas, dtype=np.float32)
     somsc_levels = np.asarray(somsc_levels, dtype=np.float32)
 
-    return {
-        "pool_delta_std": np.maximum(
-            pool_deltas.std(axis=0),
-            MIN_DELTA_STD,
-        ).astype(np.float32),
+    loss_context = {
+        "target_mode": target_mode,
+        "target_pool_cols": target_pool_cols,
+        "target_pool_indices": target_pool_indices,
         "somsc_delta_std": max(float(somsc_deltas.std()), MIN_DELTA_STD),
         "somsc_level_std": max(float(somsc_levels.std()), MIN_DELTA_STD),
     }
+    if target_mode == "pool_deltas":
+        loss_context["pool_delta_std"] = np.maximum(
+            pool_deltas.std(axis=0),
+            MIN_DELTA_STD,
+        ).astype(np.float32)
+    return loss_context
 
 
 def compute_yearly_loss(
     outputs,
     batch,
-    pool_delta_std,
-    somsc_delta_std: float,
-    somsc_level_std: float,
+    loss_context: dict,
 ):
-    pool_delta_pred = outputs["soc_state_delta_pred"]
-    pool_delta_true = batch["soc_state_delta_raw"]
-    mask = batch["somsc_mask"].reshape(-1, 1).expand_as(pool_delta_true)
-    pool_scale = torch.as_tensor(
-        pool_delta_std,
-        dtype=pool_delta_pred.dtype,
-        device=pool_delta_pred.device,
-    ).reshape(1, -1)
-
-    pool_delta_loss = compute_masked_mse(
-        pool_delta_pred / pool_scale,
-        pool_delta_true / pool_scale,
-        mask,
-    )
-
     somsc_pred = outputs["somsc_pred"].reshape(-1)
     somsc_true = batch["somsc"].reshape(-1)
     prev_somsc = batch["prev_somsc_state"].reshape(-1)
     somsc_mask = batch["somsc_mask"].reshape(-1)
 
     somsc_delta_scale = torch.as_tensor(
-        somsc_delta_std,
+        loss_context["somsc_delta_std"],
         dtype=somsc_pred.dtype,
         device=somsc_pred.device,
     )
     somsc_level_scale = torch.as_tensor(
-        somsc_level_std,
+        loss_context["somsc_level_std"],
         dtype=somsc_pred.dtype,
         device=somsc_pred.device,
     )
@@ -114,17 +134,30 @@ def compute_yearly_loss(
         somsc_mask,
     )
 
+    if loss_context["target_mode"] == "somsc_delta":
+        return somsc_delta_loss + 0.05 * somsc_abs_anchor_loss
+
+    target_pool_indices = loss_context["target_pool_indices"]
+    pool_delta_pred = outputs["soc_state_delta_pred"][:, target_pool_indices]
+    pool_delta_true = batch["soc_state_delta_raw"][:, target_pool_indices]
+    mask = batch["somsc_mask"].reshape(-1, 1).expand_as(pool_delta_true)
+    pool_scale = torch.as_tensor(
+        loss_context["pool_delta_std"],
+        dtype=pool_delta_pred.dtype,
+        device=pool_delta_pred.device,
+    ).reshape(1, -1)
+
+    pool_delta_loss = compute_masked_mse(
+        pool_delta_pred / pool_scale,
+        pool_delta_true / pool_scale,
+        mask,
+    )
+
     return pool_delta_loss + 0.5 * somsc_delta_loss + 0.05 * somsc_abs_anchor_loss
 
 
 def compute_loss_from_context(outputs, batch, loss_context: dict):
-    return compute_yearly_loss(
-        outputs,
-        batch,
-        pool_delta_std=loss_context["pool_delta_std"],
-        somsc_delta_std=loss_context["somsc_delta_std"],
-        somsc_level_std=loss_context["somsc_level_std"],
-    )
+    return compute_yearly_loss(outputs, batch, loss_context)
 
 
 def serialize_loss_context(loss_context: dict) -> dict:
@@ -219,10 +252,16 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
     if len(dataset) == 0:
         raise ValueError("Yearly training dataset is empty after filtering invalid samples.")
 
-    loss_context = compute_train_soc_state_scales(dataset)
-    print("  Training SOC state delta stds (raw units):")
-    for name, scale in zip(SOC_STATE_COLS, loss_context["pool_delta_std"]):
-        print(f"    {name}: {float(scale):.6f}")
+    loss_context = compute_train_yearly_scales(dataset, config.model)
+    print(f"  Target mode: {loss_context['target_mode']}")
+    print(f"  Previous-state context: {config.model.prev_state_context}")
+    if loss_context["target_mode"] == "pool_deltas":
+        print("  Training SOC state delta stds (raw units):")
+        for name, scale in zip(
+            loss_context["target_pool_cols"],
+            loss_context["pool_delta_std"],
+        ):
+            print(f"    {name}: {float(scale):.6f}")
     print(f"  Training SOMSC delta std (raw units): {loss_context['somsc_delta_std']:.6f}")
     print(f"  Training SOMSC level std (raw units): {loss_context['somsc_level_std']:.6f}")
 

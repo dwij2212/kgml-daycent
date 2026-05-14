@@ -219,6 +219,20 @@ class ModelConfig:
     lstm_layers: int = 2
     dropout: float = 0.2
 
+    # Yearly SOMSC state ablations.
+    #
+    # target_mode:
+    #   pool_deltas - predict deltas for target_pool_cols and derive SOMSC
+    #   somsc_delta - predict a single annual SOMSC delta
+    # prev_state_context:
+    #   target_pools - normalized previous values for target_pool_cols
+    #   soil_pools   - normalized previous SOM1/2/3 soil pools
+    #   full_pools   - normalized previous SOM1/2/3 soil + surface pool
+    #   somsc        - normalized previous aggregate SOMSC only
+    target_mode: str = "pool_deltas"
+    prev_state_context: str = "target_pools"
+    target_pool_cols: Optional[List[str]] = None
+
 
 @dataclass
 class TrainingConfig:

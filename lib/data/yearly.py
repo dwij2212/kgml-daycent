@@ -173,6 +173,35 @@ def normalize_soc_state_outputs(
     return output, scaler
 
 
+def add_normalized_somsc_context(
+    state_output_norm_df: pd.DataFrame,
+    state_output_raw_df: pd.DataFrame,
+    train_pids: list,
+    train_scenario_ids: list,
+    train_years: list,
+    target_month: int = TARGET_MONTH,
+) -> Tuple[pd.DataFrame, StandardScaler]:
+    """Add a normalized aggregate SOMSC column for scalar-context ablations."""
+    output = state_output_norm_df.copy()
+    raw = state_output_raw_df.copy()
+
+    train_mask = raw["point_id"].isin([str(pid) for pid in train_pids])
+    train_mask &= raw["scenario_id"].isin([str(sid) for sid in train_scenario_ids])
+    train_mask &= raw["Year"].isin([int(year) for year in train_years])
+    train_mask &= raw["month"].eq(int(target_month))
+
+    train_somsc = raw.loc[train_mask, ["somsc"]]
+    if train_somsc.empty:
+        raise ValueError(
+            "No training target-month rows available to fit the SOMSC context scaler."
+        )
+
+    scaler = StandardScaler()
+    scaler.fit(train_somsc)
+    output["somsc_norm"] = scaler.transform(raw[["somsc"]])[:, 0].astype(np.float32)
+    return output, scaler
+
+
 def _build_monthly_sequence_index(
     df: pd.DataFrame,
     group_cols: list,
@@ -248,6 +277,13 @@ def prepare_yearly_data(config) -> Dict[str, Any]:
         train_scenario_ids,
         train_years,
     )
+    state_output_norm_df, somsc_input_scaler = add_normalized_somsc_context(
+        state_output_norm_df,
+        state_output_raw_df,
+        train_pids,
+        train_scenario_ids,
+        train_years,
+    )
     print(
         "   SOC state scaler fitted on December training rows "
         f"for {len(SOC_STATE_COLS)} pools"
@@ -264,6 +300,7 @@ def prepare_yearly_data(config) -> Dict[str, Any]:
         "state_output_norm_df": state_output_norm_df,
         "weather_scaler": weather_scaler,
         "state_input_scaler": state_input_scaler,
+        "somsc_input_scaler": somsc_input_scaler,
     }
 
 
@@ -351,6 +388,7 @@ class YearlySOMSCDataset(Dataset):
 
         self.december_soc_state_raw = self._build_state_index(state_output_raw_df)
         self.december_soc_state_norm = self._build_state_index(state_output_norm_df)
+        self.december_somsc_norm = self._build_somsc_norm_index(state_output_norm_df)
 
     def _build_state_index(self, state_output_df: pd.DataFrame) -> Dict[tuple, np.ndarray]:
         outputs = state_output_df.copy()
@@ -372,6 +410,23 @@ class YearlySOMSCDataset(Dataset):
                 dtype=np.float32,
             )
         return state_index
+
+    def _build_somsc_norm_index(self, state_output_df: pd.DataFrame) -> Dict[tuple, float]:
+        outputs = state_output_df.copy()
+        outputs["scenario_id"] = outputs["scenario_id"].astype(str)
+        outputs["point_id"] = outputs["point_id"].astype(str)
+        outputs["Year"] = outputs["Year"].astype(int)
+        outputs["month"] = outputs["month"].astype(int)
+
+        if "somsc_norm" not in outputs.columns:
+            raise ValueError("State output is missing normalized SOMSC column: somsc_norm")
+
+        december = outputs[outputs["month"] == TARGET_MONTH].copy()
+        somsc_index = {}
+        for row in december.itertuples(index=False):
+            key = (row.scenario_id, row.point_id, int(row.Year))
+            somsc_index[key] = float(row.somsc_norm)
+        return somsc_index
 
     def _resolve_init_condition_key(self, pid: str) -> Optional[Any]:
         try:
@@ -479,6 +534,7 @@ class YearlySOMSCDataset(Dataset):
         target_state_raw = self.december_soc_state_raw[target_key]
         delta_state_raw = target_state_raw - prev_state_raw
         prev_somsc = np.float32(prev_state_raw[: len(SOMSC_SUM_COLS)].sum())
+        prev_somsc_norm = np.float32(self.december_somsc_norm[prev_key])
         target_somsc = np.float32(target_state_raw[: len(SOMSC_SUM_COLS)].sum())
 
         item.update(
@@ -495,6 +551,7 @@ class YearlySOMSCDataset(Dataset):
                 ),
                 "somsc": torch.tensor(target_somsc, dtype=torch.float32),
                 "prev_somsc_state": torch.tensor(prev_somsc, dtype=torch.float32),
+                "prev_somsc_norm": torch.tensor(prev_somsc_norm, dtype=torch.float32),
             }
         )
         return item
