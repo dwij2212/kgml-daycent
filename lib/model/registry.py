@@ -134,7 +134,8 @@ def build_model(model_config, sample_data: dict, verbose: bool = True) -> nn.Mod
     optional_kwargs = [
         'hidden_dim', 'latent_dim', 'lstm_layers',  # LSTM models
         'd_model', 'nhead', 'num_layers', 'dim_feedforward', 'dropout',  # Transformer
-        'target_mode', 'prev_state_context', 'target_pool_cols',  # Yearly SOMSC ablations
+        'target_mode', 'prev_state_context', 'target_pool_cols', 'context_pool_cols',
+        # Yearly SOMSC ablations
     ]
     
     for key in optional_kwargs:

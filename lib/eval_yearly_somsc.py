@@ -50,6 +50,7 @@ def collect_state_predictions(model, loader, device):
         "target_mode": getattr(model, "target_mode", "pool_deltas"),
         "prev_state_context": getattr(model, "prev_state_context", "target_pools"),
         "target_pool_cols": getattr(model, "target_pool_cols", SOC_STATE_COLS),
+        "context_pool_cols": getattr(model, "context_pool_cols", []),
     }
 
     state_keys_initialized = False
@@ -185,6 +186,7 @@ def collect_state_rollout_predictions(
         "target_mode": target_mode,
         "prev_state_context": prev_state_context,
         "target_pool_cols": getattr(model, "target_pool_cols", SOC_STATE_COLS),
+        "context_pool_cols": getattr(model, "context_pool_cols", []),
     }
     if target_mode == "pool_deltas":
         predictions["soc_state_pred"] = []
@@ -583,6 +585,7 @@ def save_state_predictions_to_csv(predictions, output_path):
             "target_pool_cols": ",".join(
                 predictions.get("target_pool_cols", SOC_STATE_COLS)
             ),
+            "context_pool_cols": ",".join(predictions.get("context_pool_cols", [])),
             "somsc_pred": predictions["somsc_pred"][idx],
             "somsc_true": predictions["somsc_true"][idx],
             "somsc_delta_pred": predictions["somsc_delta_pred"][idx],

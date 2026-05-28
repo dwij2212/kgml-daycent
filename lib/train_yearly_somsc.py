@@ -27,6 +27,7 @@ from utils.optim import create_optimizer_and_scheduler
 
 MIN_DELTA_STD = 1e-6
 VALID_TARGET_MODES = {"pool_deltas", "somsc_delta"}
+SOMSC_POOL_COLS = SOC_STATE_COLS[:3]
 
 
 def get_target_mode(model_config) -> str:
@@ -91,6 +92,9 @@ def compute_train_yearly_scales(dataset, model_config) -> dict:
         "target_mode": target_mode,
         "target_pool_cols": target_pool_cols,
         "target_pool_indices": target_pool_indices,
+        "predicts_complete_somsc": all(
+            col in target_pool_cols for col in SOMSC_POOL_COLS
+        ),
         "somsc_delta_std": max(float(somsc_deltas.std()), MIN_DELTA_STD),
         "somsc_level_std": max(float(somsc_levels.std()), MIN_DELTA_STD),
     }
@@ -152,6 +156,11 @@ def compute_yearly_loss(
         pool_delta_true / pool_scale,
         mask,
     )
+
+    # A subset-target model does not predict all components of SOMSC. Penalizing
+    # its partial sum against total SOMSC change would corrupt the pool target.
+    if not loss_context["predicts_complete_somsc"]:
+        return pool_delta_loss
 
     return pool_delta_loss + 0.5 * somsc_delta_loss + 0.05 * somsc_abs_anchor_loss
 
@@ -262,6 +271,8 @@ def train(config: ExperimentConfig, prepared_data: dict = None):
             loss_context["pool_delta_std"],
         ):
             print(f"    {name}: {float(scale):.6f}")
+        if not loss_context["predicts_complete_somsc"]:
+            print("  Aggregate SOMSC loss disabled: target does not cover all soil pools.")
     print(f"  Training SOMSC delta std (raw units): {loss_context['somsc_delta_std']:.6f}")
     print(f"  Training SOMSC level std (raw units): {loss_context['somsc_level_std']:.6f}")
 

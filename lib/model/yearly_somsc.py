@@ -7,7 +7,13 @@ from model.registry import register_model
 SOC_STATE_COLS = ["som1c_soil", "som2c_soil", "som3c", "som2c_surface"]
 SOIL_POOL_COLS = ["som1c_soil", "som2c_soil", "som3c"]
 VALID_TARGET_MODES = {"pool_deltas", "somsc_delta"}
-VALID_CONTEXT_MODES = {"target_pools", "soil_pools", "full_pools", "somsc"}
+VALID_CONTEXT_MODES = {
+    "target_pools",
+    "soil_pools",
+    "full_pools",
+    "somsc",
+    "custom_pools",
+}
 
 
 def _resolve_pool_indices(pool_cols, state_dim):
@@ -28,7 +34,7 @@ def _resolve_pool_indices(pool_cols, state_dim):
         indices.append(idx)
 
     if not indices:
-        raise ValueError("At least one target pool column is required.")
+        raise ValueError("At least one pool column is required.")
     return indices
 
 
@@ -57,6 +63,7 @@ class YearlySOMSCStateModel(nn.Module):
         target_mode="pool_deltas",
         prev_state_context="target_pools",
         target_pool_cols=None,
+        context_pool_cols=None,
         **kwargs,
     ):
         super().__init__()
@@ -87,11 +94,22 @@ class YearlySOMSCStateModel(nn.Module):
         elif prev_state_context == "full_pools":
             context_pool_indices = list(range(state_dim))
             context_dim = state_dim
+        elif prev_state_context == "custom_pools":
+            if context_pool_cols is None:
+                raise ValueError(
+                    "context_pool_cols is required when "
+                    "prev_state_context='custom_pools'."
+                )
+            context_pool_indices = _resolve_pool_indices(context_pool_cols, state_dim)
+            context_dim = len(context_pool_indices)
         else:
             context_pool_indices = []
             context_dim = 1
 
         self.context_pool_indices = context_pool_indices
+        self.context_pool_cols = [
+            SOC_STATE_COLS[idx] for idx in self.context_pool_indices
+        ]
         output_dim = 1 if target_mode == "somsc_delta" else len(self.target_pool_indices)
         static_dim = init_dim + year_dim + context_dim
 

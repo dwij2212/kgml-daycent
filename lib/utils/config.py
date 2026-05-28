@@ -229,9 +229,11 @@ class ModelConfig:
     #   soil_pools   - normalized previous SOM1/2/3 soil pools
     #   full_pools   - normalized previous SOM1/2/3 soil + surface pool
     #   somsc        - normalized previous aggregate SOMSC only
+    #   custom_pools - normalized previous values for context_pool_cols
     target_mode: str = "pool_deltas"
     prev_state_context: str = "target_pools"
     target_pool_cols: Optional[List[str]] = None
+    context_pool_cols: Optional[List[str]] = None
 
 
 @dataclass
