@@ -504,6 +504,7 @@ class BOGraphStrategy(BaseStrategy):
         fail_tol: int = 20,
         succ_tol: int = 10,
         shrink_tol: int = 5,
+        initial_subset: Optional[List[str]] = None,
         **kwargs,
     ):
         super().__init__(n_points, seed, **kwargs)
@@ -515,6 +516,11 @@ class BOGraphStrategy(BaseStrategy):
         self.fail_tol = fail_tol
         self.succ_tol = succ_tol
         self.shrink_tol = shrink_tol
+        self.initial_subset = (
+            [str(p) for p in initial_subset]
+            if initial_subset is not None
+            else None
+        )
 
         # ---- internal state (persists across select/tell calls) ----
         self._rng = np.random.RandomState(seed)
@@ -614,6 +620,33 @@ class BOGraphStrategy(BaseStrategy):
     def _pids_to_combo(self, pids: List[str]) -> tuple:
         return tuple(sorted(self._pid_to_idx[p] for p in pids))
 
+    def _initial_combo_node(self) -> tuple:
+        """Return the first BO subset, either forced or random."""
+        if self.initial_subset is None:
+            return self._random_combo_node()
+
+        if len(self.initial_subset) != self.n_points:
+            raise ValueError(
+                "Forced initial_subset length does not match n_points: "
+                f"{len(self.initial_subset)} != {self.n_points}"
+            )
+
+        unique = set(self.initial_subset)
+        if len(unique) != len(self.initial_subset):
+            raise ValueError("Forced initial_subset contains duplicate point IDs.")
+
+        missing = sorted(p for p in unique if p not in self._pid_to_idx)
+        if missing:
+            preview = ", ".join(missing[:10])
+            if len(missing) > 10:
+                preview += f", ... ({len(missing)} total)"
+            raise ValueError(
+                "Forced initial_subset contains point IDs not present in the "
+                f"BO pool/embeddings: {preview}"
+            )
+
+        return self._pids_to_combo(self.initial_subset)
+
     # ------------------------------------------------------------------ #
     #  Public API
     # ------------------------------------------------------------------ #
@@ -650,7 +683,7 @@ class BOGraphStrategy(BaseStrategy):
 
         # --- (1) First call: random initialisation ----------------------
         if not self._observations:
-            combo = self._random_combo_node()
+            combo = self._initial_combo_node()
             self._center = combo
             self._rebuild_combo_subgraph()
             return self._make_result(combo)
@@ -822,6 +855,7 @@ class BOGraphStrategy(BaseStrategy):
                 "max_radius": self.max_radius,
                 "kernel": self.kernel,
                 "fail_tol": self.fail_tol,
+                "initial_subset_provided": self.initial_subset is not None,
             },
             metadata={
                 "bo_iteration": self._bo_iteration,

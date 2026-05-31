@@ -65,6 +65,34 @@ def subset_signature(points: List[str]) -> str:
     """Stable short hash for a selected subset."""
     payload = "\n".join(sorted(str(p) for p in points))
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+def load_initial_subset_file(path: str | None) -> List[str] | None:
+    """Load an optional forced BO initial subset from JSON."""
+    if not path:
+        return None
+
+    with open(path) as f:
+        data = json.load(f)
+
+    if isinstance(data, list):
+        points = data
+    elif isinstance(data, dict):
+        points = None
+        for key in ("selected_points", "points", "first_subset", "best_subset"):
+            if key in data:
+                points = data[key]
+                break
+        if points is None:
+            raise ValueError(
+                "Initial subset JSON must contain one of: selected_points, "
+                "points, first_subset, best_subset."
+            )
+    else:
+        raise ValueError("Initial subset JSON must be a list or object.")
+
+    if not isinstance(points, list):
+        raise ValueError("Initial subset points must be a JSON list.")
+
+    return [str(p) for p in points]
 
 
 def _run_label(args) -> str:
@@ -114,6 +142,14 @@ def run_bo_loop(args):
     _tmp_config = build_experiment_config(base_dict, pool_points, "tmp_raw_load")
     raw_data = load_raw_data(_tmp_config)
 
+    initial_subset_file = getattr(args, "initial_subset_file", None)
+    initial_subset = load_initial_subset_file(initial_subset_file)
+    if initial_subset is not None:
+        print(
+            "Using forced GraphBO initial subset "
+            f"({len(initial_subset)} points) from {initial_subset_file}"
+        )
+
     # ---- Instantiate BO strategy ----
     strategy = get_strategy(
         "bo_graph",
@@ -126,6 +162,7 @@ def run_bo_loop(args):
         fail_tol=args.fail_tol,
         succ_tol=args.succ_tol,
         shrink_tol=args.shrink_tol,
+        initial_subset=initial_subset,
     )
 
     # ---- Output directory ----
@@ -228,6 +265,7 @@ def run_bo_loop(args):
             "fail_tol": args.fail_tol,
             "succ_tol": args.succ_tol,
             "shrink_tol": args.shrink_tol,
+            "initial_subset_file": initial_subset_file,
             "iteration": i,
             "score": score,
             "best_score": best_score,
@@ -275,6 +313,7 @@ def run_bo_loop(args):
         "fail_tol": args.fail_tol,
         "succ_tol": args.succ_tol,
         "shrink_tol": args.shrink_tol,
+        "initial_subset_file": initial_subset_file,
     }
     best_path = os.path.join(out_dir, "best_subset.json")
     with open(best_path, "w") as f:
@@ -357,6 +396,14 @@ def main():
         "--score-metric", type=str, default="yield_r2",
         choices=["yield_r2", "yield_rmse", "somsc_r2", "somsc_rmse"],
         help="Metric to optimise (default: yield_r2).",
+    )
+    parser.add_argument(
+        "--initial-subset-file", type=str, default=None,
+        help=(
+            "Optional JSON file with selected_points or points. When provided, "
+            "GraphBO uses those exact points as iteration 0 instead of drawing "
+            "a random initial subset."
+        ),
     )
     # --- BO hyperparameters ---
     parser.add_argument(

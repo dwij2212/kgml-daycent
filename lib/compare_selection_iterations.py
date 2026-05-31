@@ -48,9 +48,49 @@ def _metric(metrics: dict, target: str, metric_name: str) -> float:
 
 
 def collect_random_iterations(random_dir: str, n_points: int | None = None) -> pd.DataFrame:
-    """Parse random strategy runs from n*_ss*/ensemble_summary.json."""
+    """Parse random strategy runs.
+
+    Supported layouts:
+      - n20_ss42/ensemble_summary.json
+      - iter0_n20_s42/ensemble_summary.json
+    """
     rows = []
     pat = re.compile(r"^n(?P<n>\d+)_ss(?P<seed>\d+)$")
+    iter_pat = re.compile(r"^iter(?P<iter>\d+)_n(?P<n>\d+)_s(?P<seed>\d+)$")
+
+    iter_pattern = os.path.join(random_dir, "**", "iter*_n*_s*", "ensemble_summary.json")
+    for path in sorted(glob.glob(iter_pattern, recursive=True)):
+        run_dir = os.path.basename(os.path.dirname(path))
+        m = iter_pat.match(run_dir)
+        if not m:
+            print(f"[warn] random: skipping unrecognized folder name: {run_dir}", file=sys.stderr)
+            continue
+
+        with open(path) as f:
+            d = json.load(f)
+
+        n_from_dir = int(m.group("n"))
+        n_train = int(d.get("n_train_points", n_from_dir))
+        if n_points is not None and n_train != n_points:
+            continue
+
+        metrics = d.get("metrics") or d.get("ensemble", {}).get("aggregated", {})
+        strategy_params = d.get("strategy_params", {})
+
+        rows.append({
+            "strategy": "random",
+            "run_tag": d.get("run_tag", run_dir),
+            "iteration": int(m.group("iter")),
+            "seed": int(m.group("seed")),
+            "selection_seed": strategy_params.get("seed"),
+            "n_points": n_train,
+            "yield_r2": _metric(metrics, "yield", "r2"),
+            "yield_rmse": _metric(metrics, "yield", "rmse"),
+            "somsc_r2": _metric(metrics, "somsc", "r2"),
+            "somsc_rmse": _metric(metrics, "somsc", "rmse"),
+            "elapsed_s": _safe_float(d.get("elapsed_seconds")),
+            "source_path": path,
+        })
 
     pattern = os.path.join(random_dir, "n*_ss*", "ensemble_summary.json")
     for path in sorted(glob.glob(pattern)):
@@ -76,6 +116,7 @@ def collect_random_iterations(random_dir: str, n_points: int | None = None) -> p
             "run_tag": d.get("run_tag", run_dir),
             "iteration": seed,
             "seed": seed,
+            "selection_seed": seed,
             "n_points": n_train,
             "yield_r2": _metric(metrics, "yield", "r2"),
             "yield_rmse": _metric(metrics, "yield", "rmse"),
@@ -152,7 +193,9 @@ def summarize_iterations(df: pd.DataFrame) -> pd.DataFrame:
         rows.append({
             "strategy": strategy,
             "n_points": int(sub["n_points"].iloc[0]),
-            "n_iterations": int(len(sub)),
+            "n_iterations": int(sub["iteration"].nunique()),
+            "n_seeds": int(sub["seed"].nunique()),
+            "n_runs": int(len(sub)),
             "yield_r2_mean": float(sub["yield_r2"].mean()),
             "yield_r2_std": float(sub["yield_r2"].std(ddof=0)),
             "yield_r2_best": float(best_row["yield_r2"]),
@@ -186,7 +229,15 @@ def plot_iteration_comparison(df: pd.DataFrame, save_dir: str, n_points: int):
     ax_yield_rmse_min = axes[1, 1]
 
     for i, strategy in enumerate(strategies):
-        sub = df[df["strategy"] == strategy].sort_values("iteration")
+        sub = (
+            df[df["strategy"] == strategy]
+            .groupby("iteration", as_index=False)
+            .agg({
+                "yield_r2": "mean",
+                "yield_rmse": "mean",
+            })
+            .sort_values("iteration")
+        )
         x = sub["iteration"].astype(int).values
         curve_color = curve_cmap(i)
         extrema_color = extrema_cmap(i)
