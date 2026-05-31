@@ -11,6 +11,7 @@ from .daycent import DayCentModel, MultiTaskLoss
 from .daycent_v2 import DayCentModelV2
 from .transformer import DayCentTransformer
 from .nlinear import NLinearSimple
+from .yearly_somsc import YearlySOMSCStateModel
 
 __all__ = [
     # Registry functions
@@ -20,6 +21,7 @@ __all__ = [
     'DayCentModelV2',
     'DayCentTransformer',
     'NLinearSimple',
+    'YearlySOMSCStateModel',
 
     'MultiTaskLoss',
 ]

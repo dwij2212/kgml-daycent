@@ -11,20 +11,31 @@ This script:
 The incremental loop maintains a *remaining pool* and a *selected-so-far*
 list.  At every step the strategy receives only the remaining pool and the
 already-selected points, ensuring no point is ever chosen twice.
+  2. Applies a selection strategy **incrementally** to grow the training
+     set by ``step_size`` points at each step (sampling without replacement).
+  3. At each budget checkpoint, trains and evaluates a model.
+  4. Saves metrics, selection metadata, and visualisations per step.
+
+The incremental loop maintains a *remaining pool* and a *selected-so-far*
+list.  At every step the strategy receives only the remaining pool and the
+already-selected points, ensuring no point is ever chosen twice.
 
 Usage examples
 --------------
+  # Random: grow by 50 each step up to 200 total → train at 50,100,150,200
   # Random: grow by 50 each step up to 200 total → train at 50,100,150,200
   python run_selection_experiment.py \\
       --base-config configs/selection/selection_exp6.yaml \\
       --strategy random --step-size 50 --max-points 200 --seed 42
 
   # Stratified: single step of 100
+  # Stratified: single step of 100
   python run_selection_experiment.py \\
       --base-config configs/selection/selection_exp6.yaml \\
       --strategy stratified --step-size 100 --seed 42 \\
       --feature-groups spatial soil elevation
 
+  # LCMD: grow by 25 each step up to 150
   # LCMD: grow by 25 each step up to 150
   python run_selection_experiment.py \\
       --base-config configs/selection/selection_exp6.yaml \\

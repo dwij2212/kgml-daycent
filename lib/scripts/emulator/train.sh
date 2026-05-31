@@ -9,6 +9,6 @@ fi
 
 EXPT_NUM=$1
 
-rm /users/6/mehta423/projects/daycent/data/v2.0/scaler_Y.pkl
+rm /projects/standard/kumarv/shared/dwij/daycent/data/v2.0/scaler_Y.pkl
 
 python train_emulator.py --config configs/emulator/experiment_${EXPT_NUM}.yaml

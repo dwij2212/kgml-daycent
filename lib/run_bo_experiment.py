@@ -18,13 +18,13 @@ Usage
   python run_bo_experiment.py \\
       --base-config configs/selection/selection_base.yaml \\
       --n-points 50 --n-iterations 50 --seed 42 \\
-      --embedding-path ../output/inverse_1/eval \\
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/inverse_1/eval \\
       --experiment-name exp5_bo --score-metric yield_r2
 
     python run_bo_experiment.py \
       --base-config configs/selection/selection_base.yaml \
       --n-points 100 --n-iterations 50 --seed 42 \
-      --embedding-path ../output/static_emb_32 \
+      --embedding-path /projects/standard/kumarv/shared/dwij/daycent/output/static_emb_32 \
       --experiment-name exp5_bo --score-metric yield_r2
 """
 import argparse

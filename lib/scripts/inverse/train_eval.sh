@@ -19,7 +19,7 @@
 #   bash scripts/inverse/train_eval.sh inverse_1
 # ============================================================
 
-cd /users/6/mehta423/projects/daycent/lib
+cd /projects/standard/kumarv/shared/dwij/daycent/lib
 
 source ~/anaconda3/etc/profile.d/conda.sh
 conda activate wstatt

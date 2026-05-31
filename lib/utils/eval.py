@@ -1,44 +1,51 @@
 import torch
 
-def evaluate(model, loader, device):
+from .training import compute_losses
+
+
+def evaluate(model, loader, device, somsc_abs_weight=1.0, somsc_delta_weight=10.0):
+    """
+    Evaluate emulator losses on a data loader.
+
+    Returns averaged losses in normalized space so training and validation use
+    the same objective decomposition.
+    """
     model.eval()
-    total_somsc_loss = 0.0
+    total_somsc_abs_loss = 0.0
+    total_somsc_delta_loss = 0.0
     total_yield_loss = 0.0
     total_samples = 0
 
     with torch.no_grad():
         for batch in loader:
-            # move tensors to device
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-            out = model(batch)
+            batch = {
+                k: v.to(device) if isinstance(v, torch.Tensor) else v
+                for k, v in batch.items()
+            }
+            outputs = model(batch)
+            losses = compute_losses(outputs, batch)
 
-            # SOMSC masked MSE
-            pred_somsc = out["somsc_pred"].squeeze(-1)          # (B, 12)
-            target_somsc = batch["somsc"]                      # (B, 12)
-            mask_somsc = batch["somsc_mask"]                   # (B, 12) -- float tensor with 1/0 (or cast it)
-
-            mask_sum = mask_somsc.sum()
-            if mask_sum.item() > 0:
-                somsc_loss = ((pred_somsc - target_somsc)**2 * mask_somsc).sum() / mask_sum
-            else:
-                somsc_loss = torch.tensor(0.0, device=device)
-
-            # Yield masked MSE
-            pred_yield = out["yield_pred"]                     # (B,)
-            target_yield = batch["yield"]                      # (B,)
-            mask_yield = batch["yield_mask"]                   # (B,)
-
-            mask_y_sum = mask_yield.sum()
-            if mask_y_sum.item() > 0:
-                yield_loss = ((pred_yield - target_yield)**2 * mask_yield).sum() / mask_y_sum
-            else:
-                yield_loss = torch.tensor(0.0, device=device)
-
-            bs = batch["sequence"].size(0)
-            total_somsc_loss += somsc_loss.item() * bs
-            total_yield_loss += yield_loss.item() * bs
-            total_samples += bs
+            batch_size = batch["sequence"].size(0)
+            total_somsc_abs_loss += losses["somsc_abs_loss"].item() * batch_size
+            total_somsc_delta_loss += losses["somsc_delta_loss"].item() * batch_size
+            total_yield_loss += losses["yield_loss"].item() * batch_size
+            total_samples += batch_size
 
     if total_samples == 0:
-        return float('nan'), float('nan')
-    return total_somsc_loss / total_samples, total_yield_loss / total_samples
+        return {
+            "somsc_abs_loss": float("nan"),
+            "somsc_delta_loss": float("nan"),
+            "somsc_loss": float("nan"),
+            "yield_loss": float("nan"),
+        }
+
+    avg_somsc_abs = total_somsc_abs_loss / total_samples
+    avg_somsc_delta = total_somsc_delta_loss / total_samples
+    avg_yield = total_yield_loss / total_samples
+
+    return {
+        "somsc_abs_loss": avg_somsc_abs,
+        "somsc_delta_loss": avg_somsc_delta,
+        "somsc_loss": somsc_abs_weight * avg_somsc_abs + somsc_delta_weight * avg_somsc_delta,
+        "yield_loss": avg_yield,
+    }

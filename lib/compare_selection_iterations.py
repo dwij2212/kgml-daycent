@@ -212,6 +212,35 @@ def summarize_iterations(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def summarize_seed_iterations(df: pd.DataFrame) -> pd.DataFrame:
+    """Build per-strategy, per-seed best-metric summary stats."""
+    rows = []
+    for (strategy, seed), sub in df.groupby(["strategy", "seed"], sort=True):
+        sub = sub.sort_values("iteration")
+
+        best_r2_idx = sub["yield_r2"].astype(float).idxmax()
+        best_rmse_idx = sub["yield_rmse"].astype(float).idxmin()
+        best_r2_row = sub.loc[best_r2_idx]
+        best_rmse_row = sub.loc[best_rmse_idx]
+
+        rows.append({
+            "strategy": strategy,
+            "seed": int(seed),
+            "n_points": int(sub["n_points"].iloc[0]),
+            "n_iterations": int(sub["iteration"].nunique()),
+            "n_runs": int(len(sub)),
+            "yield_r2_mean": float(sub["yield_r2"].mean()),
+            "yield_r2_best": float(best_r2_row["yield_r2"]),
+            "yield_r2_best_iteration": int(best_r2_row["iteration"]),
+            "yield_rmse_mean": float(sub["yield_rmse"].mean()),
+            "yield_rmse_best": float(best_rmse_row["yield_rmse"]),
+            "yield_rmse_best_iteration": int(best_rmse_row["iteration"]),
+            "elapsed_s_total": float(sub["elapsed_s"].sum(skipna=True)),
+        })
+
+    return pd.DataFrame(rows)
+
+
 def plot_iteration_comparison(df: pd.DataFrame, save_dir: str, n_points: int):
     """Plot yield metrics vs iteration for each strategy in a 2x2 grid.
 
@@ -304,6 +333,178 @@ def plot_iteration_comparison(df: pd.DataFrame, save_dir: str, n_points: int):
     print(f"Iteration comparison plot saved -> {out_path}")
 
 
+def _strategy_linestyle(strategy: str) -> str:
+    return "--" if strategy == "random" else "-"
+
+
+def plot_seed_iteration_comparison(df: pd.DataFrame, save_dir: str, n_points: int):
+    """Plot seed-level yield metrics and best-so-far curves in one figure."""
+    seeds = sorted(df["seed"].dropna().astype(int).unique())
+    strategies = sorted(df["strategy"].unique())
+    seed_cmap = matplotlib.colormaps["tab10"].resampled(max(1, len(seeds)))
+    seed_colors = {seed: seed_cmap(i) for i, seed in enumerate(seeds)}
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+    ax_yield_r2 = axes[0, 0]
+    ax_yield_rmse = axes[0, 1]
+    ax_yield_r2_max = axes[1, 0]
+    ax_yield_rmse_min = axes[1, 1]
+
+    for seed in seeds:
+        for strategy in strategies:
+            sub = (
+                df[(df["seed"] == seed) & (df["strategy"] == strategy)]
+                .sort_values("iteration")
+            )
+            if sub.empty:
+                continue
+
+            x = sub["iteration"].astype(int).values
+            y_r2 = sub["yield_r2"].astype(float).values
+            y_rmse = sub["yield_rmse"].astype(float).values
+            label = f"s{seed} {strategy}"
+            color = seed_colors[seed]
+            linestyle = _strategy_linestyle(strategy)
+
+            ax_yield_r2.plot(
+                x,
+                y_r2,
+                marker="o",
+                linestyle=linestyle,
+                color=color,
+                linewidth=1.8,
+                alpha=0.85,
+                label=label,
+            )
+            ax_yield_rmse.plot(
+                x,
+                y_rmse,
+                marker="o",
+                linestyle=linestyle,
+                color=color,
+                linewidth=1.8,
+                alpha=0.85,
+                label=label,
+            )
+            ax_yield_r2_max.plot(
+                x,
+                pd.Series(y_r2).cummax().values,
+                marker="o",
+                linestyle=linestyle,
+                color=color,
+                linewidth=2.0,
+                alpha=0.9,
+                label=label,
+            )
+            ax_yield_rmse_min.plot(
+                x,
+                pd.Series(y_rmse).cummin().values,
+                marker="o",
+                linestyle=linestyle,
+                color=color,
+                linewidth=2.0,
+                alpha=0.9,
+                label=label,
+            )
+
+    panel_config = [
+        (ax_yield_r2, "Yield R2", "Yield R2 vs Iteration"),
+        (ax_yield_rmse, "Yield RMSE", "Yield RMSE vs Iteration"),
+        (ax_yield_r2_max, "Yield R2", "Yield R2 Running Max vs Iteration"),
+        (ax_yield_rmse_min, "Yield RMSE", "Yield RMSE Running Min vs Iteration"),
+    ]
+    for ax, ylabel, title in panel_config:
+        ax.set_title(title)
+        ax.set_xlabel("Iteration")
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=7, ncol=2)
+
+    fig.suptitle(f"Strategy Comparison Across Iterations by Seed (n_points={n_points})",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+
+    out_path = os.path.join(save_dir, f"strategy_iteration_seed_comparison_n{n_points}.png")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Seed-level iteration comparison plot saved -> {out_path}")
+
+
+def plot_seed_running_best_comparison(df: pd.DataFrame, save_dir: str, n_points: int):
+    """Plot best-so-far yield curves faceted by seed."""
+    seeds = sorted(df["seed"].dropna().astype(int).unique())
+    strategies = sorted(df["strategy"].unique())
+    n_seeds = len(seeds)
+    if n_seeds == 0:
+        return
+
+    curve_cmap = matplotlib.colormaps["tab10"].resampled(max(1, len(strategies)))
+    strategy_colors = {strategy: curve_cmap(i) for i, strategy in enumerate(strategies)}
+
+    fig, axes = plt.subplots(
+        n_seeds,
+        2,
+        figsize=(14, max(3.0 * n_seeds, 4.5)),
+        sharex=True,
+        squeeze=False,
+    )
+
+    for row_idx, seed in enumerate(seeds):
+        ax_r2 = axes[row_idx, 0]
+        ax_rmse = axes[row_idx, 1]
+
+        for strategy in strategies:
+            sub = (
+                df[(df["seed"] == seed) & (df["strategy"] == strategy)]
+                .sort_values("iteration")
+            )
+            if sub.empty:
+                continue
+
+            x = sub["iteration"].astype(int).values
+            y_r2_max = sub["yield_r2"].astype(float).cummax().values
+            y_rmse_min = sub["yield_rmse"].astype(float).cummin().values
+            linestyle = _strategy_linestyle(strategy)
+            color = strategy_colors[strategy]
+
+            ax_r2.plot(
+                x,
+                y_r2_max,
+                marker="o",
+                linestyle=linestyle,
+                color=color,
+                linewidth=2,
+                label=f"{strategy} max",
+            )
+            ax_rmse.plot(
+                x,
+                y_rmse_min,
+                marker="o",
+                linestyle=linestyle,
+                color=color,
+                linewidth=2,
+                label=f"{strategy} min",
+            )
+
+        ax_r2.set_title(f"Seed {seed}: Yield R2 Running Max")
+        ax_rmse.set_title(f"Seed {seed}: Yield RMSE Running Min")
+        ax_r2.set_ylabel("Yield R2")
+        ax_rmse.set_ylabel("Yield RMSE")
+        for ax in (ax_r2, ax_rmse):
+            ax.grid(True, alpha=0.3)
+            ax.legend(fontsize=8)
+            ax.set_xlabel("Iteration")
+
+    fig.suptitle(f"Best-so-far Strategy Comparison by Seed (n_points={n_points})",
+                 fontsize=14, fontweight="bold")
+    plt.tight_layout()
+
+    out_path = os.path.join(save_dir, f"strategy_iteration_seed_running_best_n{n_points}.png")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"Seed-level running-best plot saved -> {out_path}")
+
+
 def collect_all_strategies(
     random_dir: str,
     bo_dir: str,
@@ -393,7 +594,17 @@ def main():
     summary_df.to_csv(summary_csv, index=False)
     print(f"Summary CSV -> {summary_csv}")
 
+    seed_summary_df = summarize_seed_iterations(df)
+    print("\n=== STRATEGY SUMMARY BY SEED ===")
+    print(seed_summary_df.to_string(index=False))
+
+    seed_summary_csv = os.path.join(save_dir, f"strategy_iteration_seed_summary_n{args.n_points}.csv")
+    seed_summary_df.to_csv(seed_summary_csv, index=False)
+    print(f"Seed summary CSV -> {seed_summary_csv}")
+
     plot_iteration_comparison(df, save_dir=save_dir, n_points=args.n_points)
+    plot_seed_iteration_comparison(df, save_dir=save_dir, n_points=args.n_points)
+    plot_seed_running_best_comparison(df, save_dir=save_dir, n_points=args.n_points)
 
 
 if __name__ == "__main__":

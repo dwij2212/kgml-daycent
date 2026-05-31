@@ -41,7 +41,7 @@ RUN_LABEL="${RUN_LABEL:-same_initial_subset}"
 COMPARE_DIR="${COMPARE_DIR:-$DAYCENT_OUTPUT_ROOT/selection/exp6_same_init_compare_n${N_POINTS}}"
 
 SCORE_METRIC="${SCORE_METRIC:-yield_r2}"
-Q="${Q:-600}"
+Q="${Q:-1000}"
 MAX_RADIUS="${MAX_RADIUS:-3}"
 EPSILON_FACTOR="${EPSILON_FACTOR:-0.3}"
 FAIL_TOL="${FAIL_TOL:-20}"
@@ -73,31 +73,31 @@ echo "GraphBO output: $BO_DIR"
 mkdir -p "$RANDOM_ITER_DIR"
 
 for seed in "${SEED_ARRAY[@]}"; do
-    for iter in $(seq 0 $((N_ITERATIONS - 1))); do
-        if [[ "$iter" == "0" ]]; then
-            random_seed="$seed"
-        else
-            random_seed=$((seed * 100000 + iter))
-        fi
+    # for iter in $(seq 0 $((N_ITERATIONS - 1))); do
+    #     if [[ "$iter" == "0" ]]; then
+    #         random_seed="$seed"
+    #     else
+    #         random_seed=$((seed * 100000 + iter))
+    #     fi
 
-        echo
-        echo "=== seed $seed random iteration $iter: selection_seed=$random_seed ==="
-        "$PYTHON" run_ensemble_experiment.py \
-            --base-config "$BASE_CONFIG" \
-            --strategy random \
-            --step-size "$N_POINTS" \
-            --max-points "$N_POINTS" \
-            --seed "$random_seed" \
-            --ensemble-seeds "${ENSEMBLE_SEED_ARRAY[@]}" \
-            --experiment-name "$RANDOM_EXPERIMENT_NAME" \
-            "${EXTRA_ARGS[@]}"
+    #     echo
+    #     echo "=== seed $seed random iteration $iter: selection_seed=$random_seed ==="
+    #     "$PYTHON" run_ensemble_experiment.py \
+    #         --base-config "$BASE_CONFIG" \
+    #         --strategy random \
+    #         --step-size "$N_POINTS" \
+    #         --max-points "$N_POINTS" \
+    #         --seed "$random_seed" \
+    #         --ensemble-seeds "${ENSEMBLE_SEED_ARRAY[@]}" \
+    #         --experiment-name "$RANDOM_EXPERIMENT_NAME" \
+    #         "${EXTRA_ARGS[@]}"
 
-        actual_random_dir="$RANDOM_DIR/n${N_POINTS}_ss${random_seed}"
-        iter_random_dir="$RANDOM_ITER_DIR/iter${iter}_n${N_POINTS}_s${seed}"
-        mkdir -p "$iter_random_dir"
-        ln -sfn "$actual_random_dir/ensemble_summary.json" "$iter_random_dir/ensemble_summary.json"
-        ln -sfn "$actual_random_dir/selection_result.json" "$iter_random_dir/selection_result.json"
-    done
+    #     actual_random_dir="$RANDOM_DIR/n${N_POINTS}_ss${random_seed}"
+    #     iter_random_dir="$RANDOM_ITER_DIR/iter${iter}_n${N_POINTS}_s${seed}"
+    #     mkdir -p "$iter_random_dir"
+    #     ln -sfn "$actual_random_dir/ensemble_summary.json" "$iter_random_dir/ensemble_summary.json"
+    #     ln -sfn "$actual_random_dir/selection_result.json" "$iter_random_dir/selection_result.json"
+    # done
 
     initial_subset_file="$RANDOM_DIR/n${N_POINTS}_ss${seed}/selection_result.json"
     if [[ ! -f "$initial_subset_file" ]]; then

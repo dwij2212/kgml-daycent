@@ -20,6 +20,7 @@ from .config import (
 from .metrics import (
     compute_regression_metrics,
     compute_masked_metrics,
+    compute_grouped_masked_metrics,
     compute_per_channel_metrics,
     compute_emulator_metrics,
 )

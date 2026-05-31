@@ -93,10 +93,7 @@ class SplitConfig:
 @dataclass
 class DataConfig:
     """Configuration for data preparation."""
-    base_dir: str = field(default_factory=lambda: os.environ.get(
-        "DAYCENT_RAW_DATA_ROOT",
-        "/projects/standard/kumarv/shared/dwij/daycent/data/SAS_KGML_090925",
-    ))
+    base_dir: str = "/projects/standard/kumarv/shared/dwij/daycent/data/SAS_KGML_090925"
     input_dir: str = field(init=False)
     output_dir: str = field(init=False)
     weather_dir: str = field(init=False)
@@ -204,7 +201,8 @@ class DataConfig:
 @dataclass
 class ModelConfig:
     """Configuration for model architecture."""
-    model_type: str = "transformer"  # Options: 'daycent', 'transformer'
+    # Options include 'daycent', 'transformer', and 'yearly_somsc_state'
+    model_type: str = "transformer"
 
     # Transformer-specific hyperparameters
     d_model: int = 128
@@ -222,6 +220,22 @@ class ModelConfig:
     latent_dim: int = 32
     lstm_layers: int = 2
     dropout: float = 0.2
+
+    # Yearly SOMSC state ablations.
+    #
+    # target_mode:
+    #   pool_deltas - predict deltas for target_pool_cols and derive SOMSC
+    #   somsc_delta - predict a single annual SOMSC delta
+    # prev_state_context:
+    #   target_pools - normalized previous values for target_pool_cols
+    #   soil_pools   - normalized previous SOM1/2/3 soil pools
+    #   full_pools   - normalized previous SOM1/2/3 soil + surface pool
+    #   somsc        - normalized previous aggregate SOMSC only
+    #   custom_pools - normalized previous values for context_pool_cols
+    target_mode: str = "pool_deltas"
+    prev_state_context: str = "target_pools"
+    target_pool_cols: Optional[List[str]] = None
+    context_pool_cols: Optional[List[str]] = None
 
 
 @dataclass

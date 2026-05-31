@@ -62,7 +62,7 @@ class DayCentTransformer(nn.Module):
         self.somsc_attn = AttentionPooling(d_model, d_model)
         self.somsc_heads = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(d_model, d_model // 2),
+                nn.Linear(d_model + 1, d_model // 2),
                 nn.GELU(),
                 nn.Linear(d_model // 2, 1)
             ) for _ in range(12)
@@ -75,6 +75,13 @@ class DayCentTransformer(nn.Module):
             nn.GELU(),
             nn.Linear(d_model // 2, 1)
         )
+
+        self._init_somsc_heads()
+
+    def _init_somsc_heads(self):
+        for head in self.somsc_heads:
+            nn.init.zeros_(head[-1].weight)
+            nn.init.zeros_(head[-1].bias)
 
     def forward(self, batch):
         seq = batch["sequence"]             # (B, 365, Input_F)
@@ -104,6 +111,7 @@ class DayCentTransformer(nn.Module):
 
         # 1. SOMSC Prediction
         somsc_preds = []
+        somsc_deltas = []
         somsc_attns = []
         ranges = month_day_ranges() # Your existing utility function
         
@@ -119,13 +127,16 @@ class DayCentTransformer(nn.Module):
             pooled, attn = self.somsc_attn(h, mask=mask)
             
             # Predict DELTA
-            delta = self.somsc_heads[m](pooled).squeeze(-1)
+            head_input = torch.cat([pooled, current_val.unsqueeze(-1)], dim=-1)
+            delta = self.somsc_heads[m](head_input).squeeze(-1)
             
             current_val = current_val + delta
             somsc_preds.append(current_val)
+            somsc_deltas.append(delta)
             somsc_attns.append(attn)
 
         somsc_preds = torch.stack(somsc_preds, dim=1) # (B, 12)
+        somsc_deltas = torch.stack(somsc_deltas, dim=1) # (B, 12)
 
         # 2. Yield Prediction
         yield_repr, yield_attn = self.yield_attn(h, mask=harvest_mask)
@@ -133,6 +144,7 @@ class DayCentTransformer(nn.Module):
 
         return {
             "somsc_pred": somsc_preds,
+            "somsc_delta_pred": somsc_deltas,
             "yield_pred": yield_pred,
             "somsc_attn": somsc_attns,
             "yield_attn": yield_attn

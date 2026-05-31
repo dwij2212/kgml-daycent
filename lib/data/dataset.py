@@ -238,6 +238,7 @@ class DayCentDatasetV2(Dataset):
         # We need the LAST valid value from the previous year (usually Month 12)
         prev_key = (scenario_id, pid, prev_year)
         prev_somsc_state = 0.0 # Default if t=0 or missing
+        prev_somsc_mask = 0.0
         
         if prev_key in self.output_index:
             indices = self.output_index[prev_key]
@@ -246,6 +247,7 @@ class DayCentDatasetV2(Dataset):
             
             if not np.isnan(val):
                 prev_somsc_state = val
+                prev_somsc_mask = 1.0
         
         
         # 2. Get weather data using pre-computed index (O(1) hash lookup)
@@ -336,6 +338,20 @@ class DayCentDatasetV2(Dataset):
         
         somsc_mask = ~np.isnan(somsc_array)
         somsc_array = np.nan_to_num(somsc_array, nan=0.0)
+
+        # Explicit month-to-month targets make the optimization focus on the
+        # carbon dynamics instead of only the large absolute stock level.
+        somsc_delta = np.zeros(12, dtype=np.float32)
+        somsc_delta_mask = np.zeros(12, dtype=np.float32)
+
+        if somsc_mask[0] and prev_somsc_mask:
+            somsc_delta[0] = somsc_array[0] - prev_somsc_state
+            somsc_delta_mask[0] = 1.0
+
+        for month_idx in range(1, 12):
+            if somsc_mask[month_idx] and somsc_mask[month_idx - 1]:
+                somsc_delta[month_idx] = somsc_array[month_idx] - somsc_array[month_idx - 1]
+                somsc_delta_mask[month_idx] = 1.0
         
         return {
             "sequence": torch.tensor(seq, dtype=torch.float32),
@@ -343,6 +359,8 @@ class DayCentDatasetV2(Dataset):
             "year_enc": torch.tensor(year_pe, dtype=torch.float32),
             "somsc": torch.tensor(somsc_array, dtype=torch.float32),
             "somsc_mask": torch.tensor(somsc_mask.astype(np.float32)),
+            "somsc_delta": torch.tensor(somsc_delta, dtype=torch.float32),
+            "somsc_delta_mask": torch.tensor(somsc_delta_mask, dtype=torch.float32),
             "yield": torch.tensor(yield_val, dtype=torch.float32),
             "yield_mask": torch.tensor(yield_mask, dtype=torch.float32),
             "harvest_mask": torch.tensor(harvest_mask, dtype=torch.float32),
@@ -350,4 +368,5 @@ class DayCentDatasetV2(Dataset):
             "year": str(year), # return str for consistency
             "scenario_id": scenario_id,
             "prev_somsc_state": torch.tensor(prev_somsc_state, dtype=torch.float32),
+            "prev_somsc_mask": torch.tensor(prev_somsc_mask, dtype=torch.float32),
         }

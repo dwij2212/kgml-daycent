@@ -2,9 +2,9 @@
 Compare selection experiment results across strategies and budget sizes.
 
 Usage:
-    python compare_selection_runs.py --runs-dir ../output/selection
+    python compare_selection_runs.py --runs-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection
     python compare_selection_runs.py --csv sweep_random.csv sweep_stratified.csv
-    python compare_selection_runs.py --ensembles --runs-dir ../output/selection
+    python compare_selection_runs.py --ensembles --runs-dir /projects/standard/kumarv/shared/dwij/daycent/output/selection
 """
 import argparse
 import glob
@@ -384,7 +384,31 @@ def main():
                             "Multiple selection-seed runs sharing the same strategy and "
                             "n_points are collapsed into a single mean ± std band per "
                             "strategy, so the plot stays readable."))
+    parser.add_argument("--ensembles", action="store_true",
+                        help=(
+                            "Search within --runs-dir for ensemble_summary.json files "
+                            "(or fall back to member summary.json files). "
+                            "Multiple selection-seed runs sharing the same strategy and "
+                            "n_points are collapsed into a single mean ± std band per "
+                            "strategy, so the plot stays readable."))
     args = parser.parse_args()
+
+    if args.ensembles:
+        df = collect_ensemble_summaries(args.runs_dir)
+
+        if df.empty:
+            print("No ensemble results found under:", args.runs_dir)
+            sys.exit(0)
+
+        print("\n=== ENSEMBLE RESULTS ===")
+        print(df.to_string(index=False))
+
+        csv_out = os.path.join(args.runs_dir, "ensemble_results.csv")
+        df.to_csv(csv_out, index=False)
+        print(f"\nEnsemble CSV → {csv_out}")
+
+        plot_ensemble_comparison(df, args.runs_dir)
+        return
 
     if args.ensembles:
         df = collect_ensemble_summaries(args.runs_dir)

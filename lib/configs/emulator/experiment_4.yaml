@@ -64,12 +64,14 @@ model:
   # dim_feedforward: 256
 
 training:
-  batch_size: 512
+  batch_size: 256
   epochs: 300
-  device: cuda:2
+  device: cuda:1
   
   somsc_loss_weight: 1.0
   yield_loss_weight: 1.0
+  somsc_abs_loss_weight: 1.0
+  somsc_delta_loss_weight: 2.0
   grad_clip_norm: 5.0
   
   # Optimizer configuration
@@ -102,4 +104,3 @@ wandb:
     - test
     - datasetv2
     - debug
-
