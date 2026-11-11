@@ -1,0 +1,17 @@
+{
+  "target": "soc",
+  "arm": "s_monthly_width512",
+  "site_split_seed": 20260915,
+  "model_training_seed": 20261008,
+  "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+  "frozen": true,
+  "original_run_directory": "/home/aravi032/kgml-daycent-v2.5/output/soc_site_split_2026-10-17/splits/20260915/runs/s_monthly_width512",
+  "data_plan_sha256": "663b3d39be90dfe60bbe2b8cdcf560596296145cec5f29e056b453c9d4774767",
+  "stats_sha256": "36466c12f8e9b3bc6c0a4f73b7c3666070fd02dffd43e621b64a2fe0801ab509",
+  "checkpoint_sha256": "0e2048ceb86b66c292511ebb36016e01024f54b48169822cf8d8bc8dbc6bdaa6",
+  "selected_reference": false,
+  "completed_epochs": 60,
+  "best_epoch": 59,
+  "config_sha256": "608a3e2b0e36f5d0d8b1ce2915c737aab662857b0fda141247ebe3d46dc74ddf",
+  "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+}

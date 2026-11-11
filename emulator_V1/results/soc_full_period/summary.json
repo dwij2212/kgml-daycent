@@ -1,0 +1,71 @@
+{
+  "definition": "One R2 over all 975 sites x 22 held-out scenarios x 24 December stocks; global DayCent mean in the denominator.",
+  "stock_definition": "Sum of the first three predicted soil-carbon pools; surface pool excluded.",
+  "initialization": "Initial 2000 pools; predicted four-pool state carried forward without true-state resets.",
+  "new_training": false,
+  "script_sha256": "35065b54cf8c6325084091fc4417d12db5e47afd83f24fb4a82a611a33681b86",
+  "results": [
+    {
+      "site_split_seed": 20260914,
+      "model_training_seed": 20261008,
+      "target": "absolute December SOC",
+      "prediction_mode": "autoregressive rollout",
+      "years": [
+        2000,
+        2023
+      ],
+      "n_years": 24,
+      "n_test_sites": 975,
+      "n_scenarios": 22,
+      "n_observations": 514800,
+      "overall_full_period_r2": 0.9992289290699832,
+      "full_period_rmse_gC_m2": 38.300266175152665,
+      "full_period_bias_gC_m2": 3.4150680300456173,
+      "sse": 755165468.3022672,
+      "sst": 979372245671.07,
+      "daycent_mean_gC_m2": 4975.047988519557,
+      "median_trajectory_r2": 0.9790053543072152,
+      "median_site_r2": 0.9900786257957715,
+      "final_stock_rmse_gC_m2": 54.52551498114196,
+      "reference_recorded_trajectory_r2": 0.9790053543072152,
+      "reference_recorded_final_stock_rmse": 54.52551498114196,
+      "checkpoint_sha256": "3506173847cba1a8e2e8fdc306ee0906f8a491d1517c37dc8c62d3635a17cb31",
+      "plan_sha256": "97c28908b603e83c7730b55f024cde6696138dc02a14cbe8cf4833a7db42ca36",
+      "stats_sha256": "245329678a1deb0b4d960a36c9675866aa77a5a72bbdf97abcd95032dd6cec05",
+      "prediction_origin": "original saved A100 predictions",
+      "trajectory_r2_difference_from_record": 0.0,
+      "final_rmse_difference_from_record": 0.0
+    },
+    {
+      "site_split_seed": 20260915,
+      "model_training_seed": 20261008,
+      "target": "absolute December SOC",
+      "prediction_mode": "autoregressive rollout",
+      "years": [
+        2000,
+        2023
+      ],
+      "n_years": 24,
+      "n_test_sites": 975,
+      "n_scenarios": 22,
+      "n_observations": 514800,
+      "overall_full_period_r2": 0.9986179106637031,
+      "full_period_rmse_gC_m2": 50.07954589520112,
+      "full_period_bias_gC_m2": 2.709599392928209,
+      "sse": 1291098280.107407,
+      "sst": 934164128323.8245,
+      "daycent_mean_gC_m2": 4971.068713308392,
+      "median_trajectory_r2": 0.9647320528046138,
+      "median_site_r2": 0.9816869475244488,
+      "final_stock_rmse_gC_m2": 73.1093311241167,
+      "reference_recorded_trajectory_r2": 0.9647224707777756,
+      "reference_recorded_final_stock_rmse": 73.10477670666899,
+      "checkpoint_sha256": "0e2048ceb86b66c292511ebb36016e01024f54b48169822cf8d8bc8dbc6bdaa6",
+      "plan_sha256": "663b3d39be90dfe60bbe2b8cdcf560596296145cec5f29e056b453c9d4774767",
+      "stats_sha256": "36466c12f8e9b3bc6c0a4f73b7c3666070fd02dffd43e621b64a2fe0801ab509",
+      "prediction_origin": "checkpoint reevaluation on GTX 1080 Ti",
+      "trajectory_r2_difference_from_record": 9.582026838206303e-06,
+      "final_rmse_difference_from_record": 0.0045544174477072374
+    }
+  ]
+}

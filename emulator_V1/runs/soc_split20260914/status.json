@@ -1,0 +1,16 @@
+{
+  "state": "complete",
+  "arm": "s_monthly_width512",
+  "pid": 1137460,
+  "device": "cuda:2",
+  "updated_epoch": 1791614819.5946147,
+  "elapsed_seconds": 13603,
+  "epochs_total": 60,
+  "steps_per_epoch": 512,
+  "micro_batch": 64,
+  "effective_batch": 64,
+  "unroll": 8,
+  "phase": "training and test evaluation complete",
+  "epoch": 60,
+  "best_epoch": 58
+}

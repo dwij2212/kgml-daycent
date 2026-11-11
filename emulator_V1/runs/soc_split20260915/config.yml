@@ -1,0 +1,33 @@
+# Final soc run: site split 20260915; model seed 20261008.
+# Reconstructed from the recorded final recipe on 2026-10-17.
+# Original jobs used Python/JSON settings; this is their runnable YAML equivalent.
+# Completed 60 epochs; selected checkpoint: epoch 59.
+# Uses the current local input copy; historical paths are in run.json.
+# Evaluate with --config; retraining requires --run-dir pointing to a NEW directory.
+target: soc
+site_split_seed: 20260915
+device: cuda:0
+verify_input_hashes: true
+paths:
+  input_root: /export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived
+  run_dir: .
+models:
+  soc:
+    training_seed: 20261008
+    architecture:
+      hidden_dim: 512
+      latent_dim: 128
+      lstm_layers: 1
+    training:
+      epochs: 60
+      steps_per_epoch: 512
+      effective_batch: 64
+      micro_batch: 64
+      lr: 0.001
+      weight_decay: 0.0
+      gradient_clip: 5.0
+      min_lr: 2.0e-05
+    unroll: 8
+    loss:
+      monthly_weight: 0.5
+      somsc_weight: 0.5

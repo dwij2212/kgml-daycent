@@ -1,0 +1,8 @@
+{
+  "target": "soc",
+  "site_split_seed": 20260914,
+  "model_training_seed": 20261008,
+  "median_trajectory_r2": 0.9790053543072152,
+  "final_stock_rmse": 54.52551498114196,
+  "negative_cells": 49
+}

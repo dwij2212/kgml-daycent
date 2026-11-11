@@ -1,0 +1,17 @@
+{
+  "target": "soc",
+  "arm": "s_monthly_width512",
+  "site_split_seed": 20260914,
+  "model_training_seed": 20261008,
+  "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+  "frozen": true,
+  "original_run_directory": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512",
+  "data_plan_sha256": "97c28908b603e83c7730b55f024cde6696138dc02a14cbe8cf4833a7db42ca36",
+  "stats_sha256": "245329678a1deb0b4d960a36c9675866aa77a5a72bbdf97abcd95032dd6cec05",
+  "checkpoint_sha256": "3506173847cba1a8e2e8fdc306ee0906f8a491d1517c37dc8c62d3635a17cb31",
+  "selected_reference": true,
+  "completed_epochs": 60,
+  "best_epoch": 58,
+  "config_sha256": "9b565f6117551ea28983ad494d176904cadaba6d450e26a53865ac3907c0d3ce",
+  "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+}

@@ -1,0 +1,247 @@
+{
+  "selected_reference_site_seed": 20260914,
+  "runs": [
+    {
+      "run": "runs/yield_split20260914",
+      "target": "yield",
+      "arm": "y_season_context_pairloss",
+      "site_split_seed": 20260914,
+      "model_training_seed": 20261009,
+      "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+      "frozen": true,
+      "original_run_directory": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss",
+      "data_plan_sha256": "73340ab7aa7f714800cb6ad063426a7a7500bc896fcfd56a1e784f028e7179e4",
+      "stats_sha256": "3767510c6189528f8d9a9d52e1f0d5317cca33ca732440edaac275e8bf69a0fd",
+      "checkpoint_sha256": "781acb070bb45aa40a8718f895cca80d914d600eb2892059b5a60d06dec748dc",
+      "selected_reference": true,
+      "completed_epochs": 75,
+      "best_epoch": 75,
+      "metrics": {
+        "target": "yield",
+        "site_split_seed": 20260914,
+        "model_training_seed": 20261009,
+        "crops": {
+          "corn": {
+            "median_trajectory_r2": 0.936617400333356,
+            "negative_cells": 258,
+            "scored_cells": 19500
+          },
+          "soybean": {
+            "median_trajectory_r2": 0.9688602101616256,
+            "negative_cells": 38,
+            "scored_cells": 19500
+          },
+          "winter_wheat": {
+            "median_trajectory_r2": 0.8789389667331166,
+            "negative_cells": 526,
+            "scored_cells": 18525
+          }
+        }
+      },
+      "config_sha256": "92d0ccf8daba8c2199b5d44992936b5da0adf72a8e237e81a88e319e2ab52e48",
+      "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+    },
+    {
+      "run": "runs/yield_split20260915",
+      "target": "yield",
+      "arm": "y_season_context_pairloss",
+      "site_split_seed": 20260915,
+      "model_training_seed": 20261009,
+      "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+      "frozen": true,
+      "original_run_directory": "/home/aravi032/kgml-daycent-v2.5/output/yield_site_splits_2026-10-17/splits/20260915/runs/y_season_context_pairloss",
+      "data_plan_sha256": "378990060b407a86fe9fd5fdd19cb2887ac6b17c3992b6c32c67c09bed1330c4",
+      "stats_sha256": "351525e0550399d1b1753603efa522242060fc206b2f60a7ad5c4e129f178dc0",
+      "checkpoint_sha256": "9697e263fb5dc0b462407d2cc8ca7a9f9cd9fbc5276a460e95ba4f0ee93b4c2a",
+      "selected_reference": false,
+      "completed_epochs": 75,
+      "best_epoch": 70,
+      "metrics": {
+        "site_split_seed": 20260915,
+        "model_training_seed": 20261009,
+        "selected_heatmaps": {
+          "scenario_order": [
+            "synthetic_032",
+            "synthetic_038",
+            "synthetic_040",
+            "synthetic_042",
+            "synthetic_050",
+            "synthetic_053",
+            "synthetic_059",
+            "synthetic_076",
+            "synthetic_083",
+            "synthetic_146",
+            "synthetic_152",
+            "synthetic_164",
+            "synthetic_165",
+            "synthetic_166",
+            "synthetic_168",
+            "synthetic_169",
+            "synthetic_180",
+            "synthetic_185",
+            "synthetic_188",
+            "synthetic_192",
+            "realistic_003",
+            "realistic_006"
+          ]
+        },
+        "crop_summaries": [
+          {
+            "crop": "corn",
+            "median_r2": 0.939867957162877,
+            "scored_cells": 19500,
+            "negative_cells": 208,
+            "negative_percent": 1.0666666666666667
+          },
+          {
+            "crop": "soybean",
+            "median_r2": 0.9687761002894597,
+            "scored_cells": 19500,
+            "negative_cells": 32,
+            "negative_percent": 0.1641025641025641
+          },
+          {
+            "crop": "winter_wheat",
+            "median_r2": 0.8751576585416466,
+            "scored_cells": 18525,
+            "negative_cells": 588,
+            "negative_percent": 3.174089068825911
+          }
+        ]
+      },
+      "config_sha256": "bd291a3875f94715fbce1d3c0a1d21db55afea397cdd6ecf2f27a0f4be4bf0d2",
+      "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+    },
+    {
+      "run": "runs/yield_split20260916",
+      "target": "yield",
+      "arm": "y_season_context_pairloss",
+      "site_split_seed": 20260916,
+      "model_training_seed": 20261009,
+      "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+      "frozen": true,
+      "original_run_directory": "/home/aravi032/kgml-daycent-v2.5/output/yield_site_splits_2026-10-17/splits/20260916/runs/y_season_context_pairloss",
+      "data_plan_sha256": "a1e8428a3985155f3fec31af1d4bea5fc340f273308308474bbc1d31617ef718",
+      "stats_sha256": "212f4457640cb7c2b0a15ec14ac554d157f4732a19f56bf1f9a6a4fc8f72458b",
+      "checkpoint_sha256": "76e4996e935800f293e94e1948ec760427bd314031d6c6a359934c87ae2a5e0a",
+      "selected_reference": false,
+      "completed_epochs": 75,
+      "best_epoch": 74,
+      "metrics": {
+        "site_split_seed": 20260916,
+        "model_training_seed": 20261009,
+        "selected_heatmaps": {
+          "scenario_order": [
+            "synthetic_032",
+            "synthetic_038",
+            "synthetic_040",
+            "synthetic_042",
+            "synthetic_050",
+            "synthetic_053",
+            "synthetic_059",
+            "synthetic_076",
+            "synthetic_083",
+            "synthetic_146",
+            "synthetic_152",
+            "synthetic_164",
+            "synthetic_165",
+            "synthetic_166",
+            "synthetic_168",
+            "synthetic_169",
+            "synthetic_180",
+            "synthetic_185",
+            "synthetic_188",
+            "synthetic_192",
+            "realistic_003",
+            "realistic_006"
+          ]
+        },
+        "crop_summaries": [
+          {
+            "crop": "corn",
+            "median_r2": 0.9376577562854889,
+            "scored_cells": 19500,
+            "negative_cells": 252,
+            "negative_percent": 1.2923076923076922
+          },
+          {
+            "crop": "soybean",
+            "median_r2": 0.9699742685591459,
+            "scored_cells": 19500,
+            "negative_cells": 33,
+            "negative_percent": 0.16923076923076924
+          },
+          {
+            "crop": "winter_wheat",
+            "median_r2": 0.8780799472512227,
+            "scored_cells": 18525,
+            "negative_cells": 539,
+            "negative_percent": 2.9095816464237516
+          }
+        ]
+      },
+      "config_sha256": "0c7923f0354baf07c60f876a75d1469d8c991781c0036a14bd8671a63778e544",
+      "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+    },
+    {
+      "run": "runs/soc_split20260914",
+      "target": "soc",
+      "arm": "s_monthly_width512",
+      "site_split_seed": 20260914,
+      "model_training_seed": 20261008,
+      "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+      "frozen": true,
+      "original_run_directory": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512",
+      "data_plan_sha256": "97c28908b603e83c7730b55f024cde6696138dc02a14cbe8cf4833a7db42ca36",
+      "stats_sha256": "245329678a1deb0b4d960a36c9675866aa77a5a72bbdf97abcd95032dd6cec05",
+      "checkpoint_sha256": "3506173847cba1a8e2e8fdc306ee0906f8a491d1517c37dc8c62d3635a17cb31",
+      "selected_reference": true,
+      "completed_epochs": 60,
+      "best_epoch": 58,
+      "metrics": {
+        "target": "soc",
+        "site_split_seed": 20260914,
+        "model_training_seed": 20261008,
+        "median_trajectory_r2": 0.9790053543072152,
+        "final_stock_rmse": 54.52551498114196,
+        "negative_cells": 49
+      },
+      "config_sha256": "9b565f6117551ea28983ad494d176904cadaba6d450e26a53865ac3907c0d3ce",
+      "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+    },
+    {
+      "run": "runs/soc_split20260915",
+      "target": "soc",
+      "arm": "s_monthly_width512",
+      "site_split_seed": 20260915,
+      "model_training_seed": 20261008,
+      "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+      "frozen": true,
+      "original_run_directory": "/home/aravi032/kgml-daycent-v2.5/output/soc_site_split_2026-10-17/splits/20260915/runs/s_monthly_width512",
+      "data_plan_sha256": "663b3d39be90dfe60bbe2b8cdcf560596296145cec5f29e056b453c9d4774767",
+      "stats_sha256": "36466c12f8e9b3bc6c0a4f73b7c3666070fd02dffd43e621b64a2fe0801ab509",
+      "checkpoint_sha256": "0e2048ceb86b66c292511ebb36016e01024f54b48169822cf8d8bc8dbc6bdaa6",
+      "selected_reference": false,
+      "completed_epochs": 60,
+      "best_epoch": 59,
+      "metrics": {
+        "site_split_seed": 20260915,
+        "model_training_seed": 20261008,
+        "test_sites": 975,
+        "reserved_scenarios": 22,
+        "years": [
+          2000,
+          2023
+        ],
+        "median_trajectory_r2": 0.9647224707777756,
+        "negative_cells": 317,
+        "final_stock_rmse": 73.10477670666899,
+        "best_epoch": 59,
+        "training_samples_verified_epochs": 60,
+        "evaluation_files_verified": 198
+      },
+      "config_sha256": "608a3e2b0e36f5d0d8b1ce2915c737aab662857b0fda141247ebe3d46dc74ddf",
+      "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+    }
+  ]
+}

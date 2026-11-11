@@ -1,0 +1,28 @@
+{
+  "arm": "y_season_context_pairloss",
+  "initialization": "random_from_scratch",
+  "initial_hash": "b0386b7b8b5db151af87fe043938b84117017d8aad00f53cf8220f4b1f1d5013",
+  "pretrained_checkpoint_loaded": false,
+  "torch": "2.7.1+cu118",
+  "numpy": "2.4.6",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "seed": 20261009,
+  "input_stats_sha256": "351525e0550399d1b1753603efa522242060fc206b2f60a7ad5c4e129f178dc0",
+  "source_plan_sha256": "378990060b407a86fe9fd5fdd19cb2887ac6b17c3992b6c32c67c09bed1330c4",
+  "run_plan_sha256": "2fdfa891796674fb41e152b7a50ef911711c228edd6708f8a833d408427f0f18",
+  "TF32": true,
+  "epochs": 75,
+  "steps_per_epoch": 1024,
+  "batch_size": 256,
+  "pair_loss_weight": 0.5,
+  "config": {
+    "context": true,
+    "paired": true,
+    "pair_weight": 0.5,
+    "weight_decay": 0.0001,
+    "seed": 20261009
+  },
+  "site_split_seed": 20260915,
+  "model_training_seed": 20261009,
+  "reference_training_source_sha256": "94016d4541d4f44c6e7732e1a57902b734fcfb7a42edd736573d2c7f79fd8507"
+}

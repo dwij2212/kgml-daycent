@@ -1,0 +1,214 @@
+{
+  "definition": "Overall R2 pools all harvests across sites, crops, years, and the 22 held-out scenarios. Each per-crop R2 pools the corresponding crop's harvests across sites, years, and those scenarios.",
+  "new_training": false,
+  "script_sha256": "835cf0fb9a994dd65023b4e52f64ff1bb7dec782d1c6a2cf8e9435b3971bd34e",
+  "results": [
+    {
+      "site_split_seed": 20260914,
+      "model_training_seed": 20261009,
+      "years": [
+        2001,
+        2023
+      ],
+      "n_test_sites": 975,
+      "n_scenarios": 22,
+      "overall": {
+        "n": 461563,
+        "r2": 0.9891313210209788,
+        "sse": 50915610.27536149,
+        "sst": 4684618100.657778,
+        "daycent_mean": 224.92052122769215,
+        "rmse": 10.502918199862059,
+        "bias": 0.3452230252372944
+      },
+      "per_crop": {
+        "corn": {
+          "n": 161864,
+          "r2": 0.9729832953801194,
+          "sse": 25515356.152333178,
+          "sst": 944428882.4758192,
+          "daycent_mean": 335.9183339580311,
+          "rmse": 12.555259202232024,
+          "bias": -0.4864701007480458
+        },
+        "soybean": {
+          "n": 173924,
+          "r2": 0.9819007047870758,
+          "sse": 3086520.5560863623,
+          "sst": 170532637.86107853,
+          "daycent_mean": 143.7538648638992,
+          "rmse": 4.212644677142912,
+          "bias": 0.10355371832422641
+        },
+        "winter_wheat": {
+          "n": 125775,
+          "r2": 0.9284267415191876,
+          "sse": 22313733.566941954,
+          "sst": 311760761.4989878,
+          "daycent_mean": 194.31252744222394,
+          "rmse": 13.319531785622525,
+          "bias": 1.7497411622282668
+        }
+      },
+      "trajectory_median_checks": {
+        "corn": {
+          "current": 0.936617400333356,
+          "recorded": 0.936617400333356,
+          "difference": 0.0
+        },
+        "soybean": {
+          "current": 0.9688602101616256,
+          "recorded": 0.9688602101616256,
+          "difference": 0.0
+        },
+        "winter_wheat": {
+          "current": 0.8789389667331166,
+          "recorded": 0.8789389667331166,
+          "difference": 0.0
+        }
+      },
+      "checkpoint_sha256": "781acb070bb45aa40a8718f895cca80d914d600eb2892059b5a60d06dec748dc",
+      "plan_sha256": "73340ab7aa7f714800cb6ad063426a7a7500bc896fcfd56a1e784f028e7179e4",
+      "stats_sha256": "3767510c6189528f8d9a9d52e1f0d5317cca33ca732440edaac275e8bf69a0fd",
+      "prediction_origin": "original saved A100 predictions"
+    },
+    {
+      "site_split_seed": 20260915,
+      "model_training_seed": 20261009,
+      "years": [
+        2001,
+        2023
+      ],
+      "n_test_sites": 975,
+      "n_scenarios": 22,
+      "overall": {
+        "n": 461663,
+        "r2": 0.9895159495169591,
+        "sse": 49654432.301387906,
+        "sst": 4736187829.475769,
+        "daycent_mean": 225.19369985220953,
+        "rmse": 10.370900695632447,
+        "bias": 0.20195745881365537
+      },
+      "per_crop": {
+        "corn": {
+          "n": 161934,
+          "r2": 0.9753690107330709,
+          "sse": 23407649.94932946,
+          "sst": 950333325.8627095,
+          "daycent_mean": 337.1522059310754,
+          "rmse": 12.022918003616397,
+          "bias": -0.8980673906197036
+        },
+        "soybean": {
+          "n": 173954,
+          "r2": 0.9837385909753491,
+          "sse": 2798583.7593900217,
+          "sst": 172099708.8965415,
+          "daycent_mean": 144.0136467658562,
+          "rmse": 4.0109933777691165,
+          "bias": -0.19511097567972632
+        },
+        "winter_wheat": {
+          "n": 125775,
+          "r2": 0.9243187423952646,
+          "sse": 23448198.59266843,
+          "sst": 309828342.3768221,
+          "daycent_mean": 193.32493603752803,
+          "rmse": 13.653927070618142,
+          "bias": 2.1673962695630355
+        }
+      },
+      "trajectory_median_checks": {
+        "corn": {
+          "current": 0.9398298649328549,
+          "recorded": 0.939867957162877,
+          "difference": -3.8092230022046536e-05
+        },
+        "soybean": {
+          "current": 0.9687785390749304,
+          "recorded": 0.9687761002894597,
+          "difference": 2.4387854706819923e-06
+        },
+        "winter_wheat": {
+          "current": 0.875101544752884,
+          "recorded": 0.8751576585416466,
+          "difference": -5.611378876257955e-05
+        }
+      },
+      "checkpoint_sha256": "9697e263fb5dc0b462407d2cc8ca7a9f9cd9fbc5276a460e95ba4f0ee93b4c2a",
+      "plan_sha256": "378990060b407a86fe9fd5fdd19cb2887ac6b17c3992b6c32c67c09bed1330c4",
+      "stats_sha256": "351525e0550399d1b1753603efa522242060fc206b2f60a7ad5c4e129f178dc0",
+      "prediction_origin": "checkpoint reevaluation on GTX 1080 Ti"
+    },
+    {
+      "site_split_seed": 20260916,
+      "model_training_seed": 20261009,
+      "years": [
+        2001,
+        2023
+      ],
+      "n_test_sites": 975,
+      "n_scenarios": 22,
+      "overall": {
+        "n": 461657,
+        "r2": 0.9892409169185011,
+        "sse": 51000213.985226884,
+        "sst": 4740200777.232199,
+        "daycent_mean": 224.1838715427022,
+        "rmse": 10.510570427876809,
+        "bias": 0.32087671757854735
+      },
+      "per_crop": {
+        "corn": {
+          "n": 161906,
+          "r2": 0.9745485697837843,
+          "sse": 25587364.366413064,
+          "sst": 1005340923.8318869,
+          "daycent_mean": 334.9598982810986,
+          "rmse": 12.571332264748547,
+          "bias": -0.1412394091284636
+        },
+        "soybean": {
+          "n": 173976,
+          "r2": 0.9839118560836195,
+          "sse": 2907353.4947802983,
+          "sst": 180714040.71790534,
+          "daycent_mean": 143.07064899854694,
+          "rmse": 4.087937515250712,
+          "bias": 0.14722363836009808
+        },
+        "winter_wheat": {
+          "n": 125775,
+          "r2": 0.9265627215060498,
+          "sse": 22505496.124033526,
+          "sst": 306458743.9182885,
+          "daycent_mean": 193.7839559810656,
+          "rmse": 13.376642875907427,
+          "bias": 1.1559460216591217
+        }
+      },
+      "trajectory_median_checks": {
+        "corn": {
+          "current": 0.937663321425397,
+          "recorded": 0.9376577562854889,
+          "difference": 5.5651399081257935e-06
+        },
+        "soybean": {
+          "current": 0.9699729085809625,
+          "recorded": 0.9699742685591459,
+          "difference": -1.3599781834017222e-06
+        },
+        "winter_wheat": {
+          "current": 0.8780839786336929,
+          "recorded": 0.8780799472512227,
+          "difference": 4.031382470182088e-06
+        }
+      },
+      "checkpoint_sha256": "76e4996e935800f293e94e1948ec760427bd314031d6c6a359934c87ae2a5e0a",
+      "plan_sha256": "a1e8428a3985155f3fec31af1d4bea5fc340f273308308474bbc1d31617ef718",
+      "stats_sha256": "212f4457640cb7c2b0a15ec14ac554d157f4732a19f56bf1f9a6a4fc8f72458b",
+      "prediction_origin": "checkpoint reevaluation on GTX 1080 Ti"
+    }
+  ]
+}

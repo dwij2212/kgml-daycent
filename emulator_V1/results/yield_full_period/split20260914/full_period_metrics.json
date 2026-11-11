@@ -1,0 +1,181 @@
+{
+  "site_split_seed": 20260914,
+  "model_training_seed": 20261009,
+  "years": [
+    2001,
+    2023
+  ],
+  "n_test_sites": 975,
+  "n_scenarios": 22,
+  "overall": {
+    "n": 461563,
+    "r2": 0.9891313210209788,
+    "sse": 50915610.27536149,
+    "sst": 4684618100.657778,
+    "daycent_mean": 224.92052122769215,
+    "rmse": 10.502918199862059,
+    "bias": 0.3452230252372944
+  },
+  "per_crop": {
+    "corn": {
+      "n": 161864,
+      "r2": 0.9729832953801194,
+      "sse": 25515356.152333178,
+      "sst": 944428882.4758192,
+      "daycent_mean": 335.9183339580311,
+      "rmse": 12.555259202232024,
+      "bias": -0.4864701007480458
+    },
+    "soybean": {
+      "n": 173924,
+      "r2": 0.9819007047870758,
+      "sse": 3086520.5560863623,
+      "sst": 170532637.86107853,
+      "daycent_mean": 143.7538648638992,
+      "rmse": 4.212644677142912,
+      "bias": 0.10355371832422641
+    },
+    "winter_wheat": {
+      "n": 125775,
+      "r2": 0.9284267415191876,
+      "sse": 22313733.566941954,
+      "sst": 311760761.4989878,
+      "daycent_mean": 194.31252744222394,
+      "rmse": 13.319531785622525,
+      "bias": 1.7497411622282668
+    }
+  },
+  "trajectory_median_checks": {
+    "corn": {
+      "current": 0.936617400333356,
+      "recorded": 0.936617400333356,
+      "difference": 0.0
+    },
+    "soybean": {
+      "current": 0.9688602101616256,
+      "recorded": 0.9688602101616256,
+      "difference": 0.0
+    },
+    "winter_wheat": {
+      "current": 0.8789389667331166,
+      "recorded": 0.8789389667331166,
+      "difference": 0.0
+    }
+  },
+  "checkpoint_sha256": "781acb070bb45aa40a8718f895cca80d914d600eb2892059b5a60d06dec748dc",
+  "plan_sha256": "73340ab7aa7f714800cb6ad063426a7a7500bc896fcfd56a1e784f028e7179e4",
+  "stats_sha256": "3767510c6189528f8d9a9d52e1f0d5317cca33ca732440edaac275e8bf69a0fd",
+  "prediction_origin": "original saved A100 predictions",
+  "sources": [
+    {
+      "scenario": "realistic_003",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/realistic_003.npz",
+      "sha256": "d673bd1c4f92bc160983b8d57ab90f24a72db818bd800b36ca4537c5ff0444e7"
+    },
+    {
+      "scenario": "realistic_006",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/realistic_006.npz",
+      "sha256": "3d4d1d7bab6ef31ad9720f150170f869bbebbb35ab7b547a66d57ddf2df01fb5"
+    },
+    {
+      "scenario": "synthetic_032",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_032.npz",
+      "sha256": "1c48707f38d20c33b265e2b56855570334640d6268259c90adc85bea24874618"
+    },
+    {
+      "scenario": "synthetic_038",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_038.npz",
+      "sha256": "99adbee2585ad19b0d8f4c4bb22b9baec6568e15dbf708c8c847c45bca95b595"
+    },
+    {
+      "scenario": "synthetic_040",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_040.npz",
+      "sha256": "6427699ce78cf4e7e69126e41548b2c071414dc447f3787b2d07b42b5815b9c9"
+    },
+    {
+      "scenario": "synthetic_042",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_042.npz",
+      "sha256": "4b96bee287287f22b88efe2788fa40dc500ad49fed1f5c940404dfb9de0be2d6"
+    },
+    {
+      "scenario": "synthetic_050",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_050.npz",
+      "sha256": "9072ac3add6fd084d52d24b5dbf30c8be2ed4a0944f2be5e94c9bb374ce3fda3"
+    },
+    {
+      "scenario": "synthetic_053",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_053.npz",
+      "sha256": "d161897ead852874e26ef198b8c10b1684e532279fb93a24c63a4b80bf34fb83"
+    },
+    {
+      "scenario": "synthetic_059",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_059.npz",
+      "sha256": "f07687bfd4257b9451152027f1d4d69ecfb78b28537cf32a7a41cf3d8db55e87"
+    },
+    {
+      "scenario": "synthetic_076",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_076.npz",
+      "sha256": "cad2c9be05982dc1dac10c4a325e47a4dc02209e352d592328f8d98196243c81"
+    },
+    {
+      "scenario": "synthetic_083",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_083.npz",
+      "sha256": "91b930e5a27ecee09c56310edf028efa47e7b734ab90e4fc3c8fa088eb02bb77"
+    },
+    {
+      "scenario": "synthetic_146",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_146.npz",
+      "sha256": "ee6a73e9ce9235152e6e03087a30429ef4bad1eac6709ac90dcb92660c16433f"
+    },
+    {
+      "scenario": "synthetic_152",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_152.npz",
+      "sha256": "53d61b347dde891b03e6f49f079d5f2c30b272ea1fc9b667c9cb318bd8cf328c"
+    },
+    {
+      "scenario": "synthetic_164",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_164.npz",
+      "sha256": "977adcdd419e654e520294b9b6ed38307b204907f16c43084f4d8b4b63d77d7e"
+    },
+    {
+      "scenario": "synthetic_165",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_165.npz",
+      "sha256": "1ef6e2118497bc26608639fc09e8b06aa9be19b69939290124a9dcdf856c90b7"
+    },
+    {
+      "scenario": "synthetic_166",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_166.npz",
+      "sha256": "8bd2331f4f8b87dc93404dc4d0f22483dea7a2cb40ce594112f904647097c55d"
+    },
+    {
+      "scenario": "synthetic_168",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_168.npz",
+      "sha256": "20a30500e26c301dd35e12522960b4ab09672153cc5b2a4e5298aa7bfa17a146"
+    },
+    {
+      "scenario": "synthetic_169",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_169.npz",
+      "sha256": "2d233325ab169a1f88716c559ba3c45b7650ed9459ff51b17fa0e8743c483d4f"
+    },
+    {
+      "scenario": "synthetic_180",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_180.npz",
+      "sha256": "900ae75705fc0742c458900e73ed2a56fa5f545717a0b6239b04ce4fcfda0988"
+    },
+    {
+      "scenario": "synthetic_185",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_185.npz",
+      "sha256": "68d4f411357cfaf7a0c82e5c6733b4b4120ebebb5532f4e827a77d10957f8634"
+    },
+    {
+      "scenario": "synthetic_188",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_188.npz",
+      "sha256": "fdcbb5ea99e9f1ebe841fceb17a1412c3311836be6cf1dc1554c8d83ecd84571"
+    },
+    {
+      "scenario": "synthetic_192",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss/predictions/synthetic_192.npz",
+      "sha256": "f317c63e0cae964c5456380add7287e66df0384e14286ba63029113d39b908f3"
+    }
+  ]
+}

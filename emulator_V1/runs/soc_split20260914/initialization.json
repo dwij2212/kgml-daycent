@@ -1,0 +1,33 @@
+{
+  "input_dim": 16,
+  "init_dim": 165,
+  "architecture": {
+    "input_dim": 16,
+    "init_dim": 165,
+    "year_dim": 16,
+    "hidden_dim": 512,
+    "latent_dim": 128,
+    "lstm_layers": 1
+  },
+  "initialization": "random_from_scratch",
+  "seed": 20261008,
+  "experiment_arm": "s_monthly_width512",
+  "initial_weight_sha256": "66484a376bad9f0348c65a6938c28b4c9e76d98fd4bee765dad24775646c5e6a",
+  "pretrained_checkpoint_loaded": false,
+  "parameter_count": 1891760,
+  "torch": "2.7.1+cu118",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "TF32": true,
+  "cumulative_loss_weight": 0,
+  "monthly_loss_weight": 0.5,
+  "training_policy": {
+    "policy": "reset8",
+    "epochs": 60,
+    "hidden_dim": 512,
+    "positive": false,
+    "seed": 20261008
+  },
+  "warmup_epochs": 20,
+  "input_stats_sha256": "245329678a1deb0b4d960a36c9675866aa77a5a72bbdf97abcd95032dd6cec05",
+  "run_plan_sha256": "4fe48292779bc248be232dbf1b696cf92888dd46b4be5af99949076c40112a42"
+}

@@ -1,0 +1,65 @@
+{
+  "name": "yield_site_splits_2026-10-17",
+  "created_epoch": 1792248254.758771,
+  "state": "prepared",
+  "reference_campaign": "msi_delivery_v1",
+  "arm": "y_season_context_pairloss",
+  "site_split_seeds": [
+    20260915,
+    20260916
+  ],
+  "reference_site_split_seed": 20260914,
+  "model_training_seed": 20261009,
+  "arms": {
+    "y_season_context_pairloss": {
+      "context": true,
+      "paired": true,
+      "pair_weight": 0.5,
+      "weight_decay": 0.0001,
+      "seed": 20261009
+    }
+  },
+  "epochs": 75,
+  "steps_per_epoch": 1024,
+  "batch_size": 256,
+  "slurm_submission": true,
+  "automatic_retry": false,
+  "maximum_training_runs": 2,
+  "reference_initial_hash": "b0386b7b8b5db151af87fe043938b84117017d8aad00f53cf8220f4b1f1d5013",
+  "reference_runtime": {
+    "torch": "2.7.1+cu118",
+    "numpy": "2.4.6"
+  },
+  "reference_data_plan_sha256": "73340ab7aa7f714800cb6ad063426a7a7500bc896fcfd56a1e784f028e7179e4",
+  "reference_training_source_sha256": "94016d4541d4f44c6e7732e1a57902b734fcfb7a42edd736573d2c7f79fd8507",
+  "reference_normalization_max_abs_errors": {
+    "weather_mean": 0.0,
+    "weather_std": 0.0,
+    "static_mean": 0.0,
+    "static_std": 0.0,
+    "nitrogen_scale": 0.0,
+    "pool_mean": 0.0,
+    "pool_std": 0.0,
+    "pool_delta_std": 0.0,
+    "somsc_delta_std": 1.4210854715202004e-14,
+    "n_soc_transitions": 0.0,
+    "yield_crop_mean": 0.0,
+    "yield_crop_std": 2.842170943040401e-14,
+    "yield_crop_count": 0.0
+  },
+  "changed": "Only site split and its dependent selection sites, normalization and sampling buckets",
+  "evaluation": "All 198 scenarios at each split's 975 test sites; heatmaps use the same 22 reserved scenarios",
+  "site_split_seed": 20260915,
+  "execution": {
+    "mode": "slurm_public_queue",
+    "account": "kumarv",
+    "partition": "msigpu",
+    "qos": "normal",
+    "gpu": "a100",
+    "gpus_per_job": 1,
+    "time_limit": "03:00:00",
+    "cpus_per_job": 8,
+    "memory_per_job": "64G",
+    "local_disk_per_job_mb": 20000
+  }
+}

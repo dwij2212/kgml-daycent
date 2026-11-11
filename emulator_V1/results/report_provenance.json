@@ -1,0 +1,77 @@
+[
+  {
+    "run": "runs/yield_split20260914",
+    "source": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_delivery_v1/runs/y_season_context_pairloss",
+    "files": [
+      {
+        "name": "summary.csv",
+        "sha256": "d8d426bbe8623e0a58b56da479fcfb6e60b2265240e045efe307468416d22324"
+      },
+      {
+        "name": "per_crop.csv",
+        "sha256": "99d3d2d6ab6c1ad828341192b046acca9be7028bde5c7d2c7bbd77e8d2f2641f"
+      },
+      {
+        "name": "per_scenario_crop.csv",
+        "sha256": "678482f2d2867ec3eebce95486c7c36630617796562ff10700a93bc1cffe56fd"
+      },
+      {
+        "name": "per_year_crop.csv",
+        "sha256": "2cac5d3aab52cdc6d4c0a05f30e8ad9fcaab0d8ecb2ea0dea3c6b198bd2380cf"
+      },
+      {
+        "name": "history.json",
+        "sha256": "607c1b53e287dd78e78358cfb10aa5deed416889e67c5fee3248270fb3a90989"
+      },
+      {
+        "name": "validation_management.json",
+        "sha256": "e510f081f72023d0fdce3f3e01063b2a4b9120cc432ab49a57067db20f384914"
+      }
+    ]
+  },
+  {
+    "run": "runs/yield_split20260915",
+    "source": "/home/aravi032/kgml-daycent-v2.5/output/yield_site_splits_2026-10-17/splits/20260915/runs/y_season_context_pairloss",
+    "files": []
+  },
+  {
+    "run": "runs/yield_split20260916",
+    "source": "/home/aravi032/kgml-daycent-v2.5/output/yield_site_splits_2026-10-17/splits/20260916/runs/y_season_context_pairloss",
+    "files": []
+  },
+  {
+    "run": "runs/soc_split20260914",
+    "source": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512",
+    "files": [
+      {
+        "name": "summary.csv",
+        "sha256": "5f4e72c4eb3ad1ef72d57d3fc35cbb73481a074cd3c91abf2d9ec2ed2b0b250c"
+      },
+      {
+        "name": "per_scenario.csv",
+        "sha256": "c78f1dd111ffadbcf6c3eb931b74875d16c3f862cf87b0568ac23fa69f95663b"
+      },
+      {
+        "name": "per_year.csv",
+        "sha256": "429882fea4d1768ac8e9098097febac8097d1e198d4ce5030dca42b8ceef049f"
+      },
+      {
+        "name": "history.json",
+        "sha256": "06fe02373b0a15e976f06831d3df4ec9cf476c0ca4bf37a6a886c9b46786b17e"
+      },
+      {
+        "name": "training_results.json",
+        "sha256": "1c307fa05beb3cf29bb0dfb657a69265c2409c1566be1fa4ef4844ff949633ba"
+      },
+      {
+        "name": "initial_validation.json",
+        "sha256": "17f261e2b990b47721cd40d0e5f7106e8ffba9b04bb581be0ae0d91240cfc765"
+      }
+    ]
+  },
+  {
+    "run": "runs/soc_split20260915",
+    "source": "/home/aravi032/kgml-daycent-v2.5/output/soc_site_split_2026-10-17/splits/20260915/runs/s_monthly_width512",
+    "files": []
+  }
+]

@@ -1,0 +1,49 @@
+# Frozen defaults. Use run.py flags to choose paths and retained site splits.
+target: yield                         # yield or soc
+site_split_seed: 20260914
+device: cuda:0                       # evaluation also supports cpu
+verify_input_hashes: true
+paths:
+  raw_root: ../KGML_Midwest_Daily_2026  # original supplied Round-3 data
+  input_root: ../prepared_data
+  # Relative paths are resolved against this YAML file, not the working directory.
+  run_dir: ../emulator_runs/{target}_split{site_split_seed}_new
+
+# Defaults reproduce the selected final experiments. Editing these creates a
+# different experiment; the complete resolved configuration is saved with it.
+models:
+  yield:
+    training_seed: 20261009
+    architecture:
+      hidden_dim: 256
+      latent_dim: 128
+      lstm_layers: 1
+    training:
+      epochs: 75
+      steps_per_epoch: 1024
+      batch_size: 256                 # even: adjacent examples are paired
+      lr: 0.001
+      weight_decay: 0.0001
+      gradient_clip: 5.0
+      min_lr: 0.0                    # cosine scheduler endpoint
+    loss:
+      pair_weight: 0.5
+  soc:
+    training_seed: 20261008
+    architecture:
+      hidden_dim: 512
+      latent_dim: 128
+      lstm_layers: 1
+    training:
+      epochs: 60
+      steps_per_epoch: 512
+      effective_batch: 64
+      micro_batch: 64                 # must divide effective_batch
+      lr: 0.001
+      weight_decay: 0.0
+      gradient_clip: 5.0
+      min_lr: 0.00002
+    unroll: 8                        # training resets; evaluation carries 24 years
+    loss:
+      monthly_weight: 0.5
+      somsc_weight: 0.5

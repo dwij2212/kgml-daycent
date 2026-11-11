@@ -1,0 +1,16 @@
+{
+  "site_split_seed": 20260915,
+  "model_training_seed": 20261008,
+  "test_sites": 975,
+  "reserved_scenarios": 22,
+  "years": [
+    2000,
+    2023
+  ],
+  "median_trajectory_r2": 0.9647224707777756,
+  "negative_cells": 317,
+  "final_stock_rmse": 73.10477670666899,
+  "best_epoch": 59,
+  "training_samples_verified_epochs": 60,
+  "evaluation_files_verified": 198
+}

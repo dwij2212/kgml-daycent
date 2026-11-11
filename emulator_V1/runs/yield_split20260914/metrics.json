@@ -1,0 +1,22 @@
+{
+  "target": "yield",
+  "site_split_seed": 20260914,
+  "model_training_seed": 20261009,
+  "crops": {
+    "corn": {
+      "median_trajectory_r2": 0.936617400333356,
+      "negative_cells": 258,
+      "scored_cells": 19500
+    },
+    "soybean": {
+      "median_trajectory_r2": 0.9688602101616256,
+      "negative_cells": 38,
+      "scored_cells": 19500
+    },
+    "winter_wheat": {
+      "median_trajectory_r2": 0.8789389667331166,
+      "negative_cells": 526,
+      "scored_cells": 18525
+    }
+  }
+}

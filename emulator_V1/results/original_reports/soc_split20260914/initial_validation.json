@@ -1,0 +1,136 @@
+{
+  "loss": 51.74548309482634,
+  "group_loss": {
+    "earlier_20": 48.09495019679889,
+    "realistic_expanded_train": 58.79551326367073,
+    "synthetic_expanded_train": 48.345985824009404
+  },
+  "per_scenario": [
+    {
+      "scenario": "synthetic_005",
+      "group": "earlier_20",
+      "loss": 74.41539702191949,
+      "final_stock_rmse": 517.4601162153715,
+      "final_stock_bias": 437.44336223602295
+    },
+    {
+      "scenario": "synthetic_010",
+      "group": "earlier_20",
+      "loss": 46.104085167869925,
+      "final_stock_rmse": 460.35441228983,
+      "final_stock_bias": 330.5783796310425
+    },
+    {
+      "scenario": "synthetic_015",
+      "group": "earlier_20",
+      "loss": 47.70594937726855,
+      "final_stock_rmse": 310.51519607185054,
+      "final_stock_bias": -26.4151611328125
+    },
+    {
+      "scenario": "synthetic_017",
+      "group": "earlier_20",
+      "loss": 24.154369220137596,
+      "final_stock_rmse": 447.09855358680835,
+      "final_stock_bias": 263.84653186798096
+    },
+    {
+      "scenario": "synthetic_029",
+      "group": "synthetic_expanded_train",
+      "loss": 70.54517718032002,
+      "final_stock_rmse": 346.1018975775395,
+      "final_stock_bias": -272.3240547180176
+    },
+    {
+      "scenario": "synthetic_036",
+      "group": "synthetic_expanded_train",
+      "loss": 31.69403146021068,
+      "final_stock_rmse": 372.51979622844334,
+      "final_stock_bias": 112.28503036499023
+    },
+    {
+      "scenario": "synthetic_048",
+      "group": "synthetic_expanded_train",
+      "loss": 36.135617669671774,
+      "final_stock_rmse": 661.2739373826817,
+      "final_stock_bias": -455.1441478729248
+    },
+    {
+      "scenario": "synthetic_058",
+      "group": "synthetic_expanded_train",
+      "loss": 67.96507403254509,
+      "final_stock_rmse": 1020.9141943164946,
+      "final_stock_bias": 954.3943758010864
+    },
+    {
+      "scenario": "synthetic_084",
+      "group": "synthetic_expanded_train",
+      "loss": 37.218005906790495,
+      "final_stock_rmse": 585.1485741170377,
+      "final_stock_bias": -464.9226875305176
+    },
+    {
+      "scenario": "synthetic_087",
+      "group": "synthetic_expanded_train",
+      "loss": 28.315790195018053,
+      "final_stock_rmse": 346.1609537090532,
+      "final_stock_bias": -55.9020881652832
+    },
+    {
+      "scenario": "synthetic_138",
+      "group": "synthetic_expanded_train",
+      "loss": 43.40372483432293,
+      "final_stock_rmse": 553.2743172305507,
+      "final_stock_bias": 352.10198307037354
+    },
+    {
+      "scenario": "synthetic_200",
+      "group": "synthetic_expanded_train",
+      "loss": 71.49046531319618,
+      "final_stock_rmse": 561.9903501639983,
+      "final_stock_bias": 418.7213068008423
+    },
+    {
+      "scenario": "realistic_001",
+      "group": "realistic_expanded_train",
+      "loss": 20.12489585170988,
+      "final_stock_rmse": 429.69088067025086,
+      "final_stock_bias": -157.64212036132812
+    },
+    {
+      "scenario": "realistic_002",
+      "group": "realistic_expanded_train",
+      "loss": 203.54019226133823,
+      "final_stock_rmse": 1315.9352160625808,
+      "final_stock_bias": 1202.7500410079956
+    },
+    {
+      "scenario": "realistic_004",
+      "group": "realistic_expanded_train",
+      "loss": 27.72299582825508,
+      "final_stock_rmse": 564.7690478388851,
+      "final_stock_bias": -341.8075523376465
+    },
+    {
+      "scenario": "realistic_005",
+      "group": "realistic_expanded_train",
+      "loss": 26.14349643373862,
+      "final_stock_rmse": 457.21960598125384,
+      "final_stock_bias": -286.9236602783203
+    },
+    {
+      "scenario": "realistic_007",
+      "group": "realistic_expanded_train",
+      "loss": 33.837104172445834,
+      "final_stock_rmse": 595.0337467903585,
+      "final_stock_bias": -452.58961296081543
+    },
+    {
+      "scenario": "realistic_008",
+      "group": "realistic_expanded_train",
+      "loss": 41.40439503453672,
+      "final_stock_rmse": 682.3097086486132,
+      "final_stock_bias": -546.6415023803711
+    }
+  ]
+}

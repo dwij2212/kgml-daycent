@@ -1,0 +1,143 @@
+{
+  "site_split_seed": 20260914,
+  "model_training_seed": 20261008,
+  "target": "absolute December SOC",
+  "prediction_mode": "autoregressive rollout",
+  "years": [
+    2000,
+    2023
+  ],
+  "n_years": 24,
+  "n_test_sites": 975,
+  "n_scenarios": 22,
+  "n_observations": 514800,
+  "overall_full_period_r2": 0.9992289290699832,
+  "full_period_rmse_gC_m2": 38.300266175152665,
+  "full_period_bias_gC_m2": 3.4150680300456173,
+  "sse": 755165468.3022672,
+  "sst": 979372245671.07,
+  "daycent_mean_gC_m2": 4975.047988519557,
+  "median_trajectory_r2": 0.9790053543072152,
+  "median_site_r2": 0.9900786257957715,
+  "final_stock_rmse_gC_m2": 54.52551498114196,
+  "reference_recorded_trajectory_r2": 0.9790053543072152,
+  "reference_recorded_final_stock_rmse": 54.52551498114196,
+  "checkpoint_sha256": "3506173847cba1a8e2e8fdc306ee0906f8a491d1517c37dc8c62d3635a17cb31",
+  "plan_sha256": "97c28908b603e83c7730b55f024cde6696138dc02a14cbe8cf4833a7db42ca36",
+  "stats_sha256": "245329678a1deb0b4d960a36c9675866aa77a5a72bbdf97abcd95032dd6cec05",
+  "prediction_origin": "original saved A100 predictions",
+  "sources": [
+    {
+      "scenario": "realistic_003",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/realistic_003.npz",
+      "sha256": "4d51664d233a989eaa4255974dbd080396b4ce559ac4e99da51f492b90941a06"
+    },
+    {
+      "scenario": "realistic_006",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/realistic_006.npz",
+      "sha256": "b180232a6695e75a1c30e51833405a53f6327762306f03231b9a9d2db5f7cd38"
+    },
+    {
+      "scenario": "synthetic_032",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_032.npz",
+      "sha256": "31f5bb1610da33d3816f49eede5f1ea13f0e77f00c266f3a410b7c2ac0f68f90"
+    },
+    {
+      "scenario": "synthetic_038",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_038.npz",
+      "sha256": "4c590dcdd34a8e0690794fa42ae9ed336b25bb3f9a7292f5658ff068312ebc3d"
+    },
+    {
+      "scenario": "synthetic_040",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_040.npz",
+      "sha256": "76ae48adeb246d9012526cd15435722102aac1436a52e2b9f078d59481064387"
+    },
+    {
+      "scenario": "synthetic_042",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_042.npz",
+      "sha256": "95a9bcc5d60e440e8830e6fa404c865563a8c861c22cd63479c4ba1b70c47691"
+    },
+    {
+      "scenario": "synthetic_050",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_050.npz",
+      "sha256": "1ae5aea60c5ec8e883697986dfdc843d49c2d18c0664abe55ac577c6c5161f53"
+    },
+    {
+      "scenario": "synthetic_053",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_053.npz",
+      "sha256": "9324059ca87afea97db7289c06d4492e58e6349d192e6d3216094fd3911c7cd2"
+    },
+    {
+      "scenario": "synthetic_059",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_059.npz",
+      "sha256": "be9beb8b5ffc7a7c7977e4a9f893402c766ec3e67754c0d9a99d7a4997bcf57d"
+    },
+    {
+      "scenario": "synthetic_076",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_076.npz",
+      "sha256": "c80b9f36e13fec9d7c8e27344a157c7f9e737c24b9cc9fcbc0ff600b4921221d"
+    },
+    {
+      "scenario": "synthetic_083",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_083.npz",
+      "sha256": "479cffaa85a0e84d2cdd2960a264d0545b7cb6daf2a2214d9894990f382771b2"
+    },
+    {
+      "scenario": "synthetic_146",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_146.npz",
+      "sha256": "20048f3a4e9c65cd00045d43e111030bc3fae6106693def56c0d0796a7e39be7"
+    },
+    {
+      "scenario": "synthetic_152",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_152.npz",
+      "sha256": "3627da42e91f3f559e0e79a654469e9494ba06bdafc686003fedc2ad2a307833"
+    },
+    {
+      "scenario": "synthetic_164",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_164.npz",
+      "sha256": "f08fdb2531b3b94fecd8901938927caa2a452cc04024c957d8a1cb780472a6a0"
+    },
+    {
+      "scenario": "synthetic_165",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_165.npz",
+      "sha256": "8b0a17fe6d783182d4cb2f2dc2b750e3e83ff1dbc0dd585f4c09734b1ca69588"
+    },
+    {
+      "scenario": "synthetic_166",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_166.npz",
+      "sha256": "ed331e8fd94b3285f2f3891eb0b8b4c3a77c2a0440990b35ca01118dbf1b26ce"
+    },
+    {
+      "scenario": "synthetic_168",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_168.npz",
+      "sha256": "24dc1eee91f108b1d388fd0d4f3a9c1e6981f84ca36af5264287d3f0a718a0ca"
+    },
+    {
+      "scenario": "synthetic_169",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_169.npz",
+      "sha256": "0821d30f653cc6fc285339c84a7a355a539e8c17278e0243cc981692039d0371"
+    },
+    {
+      "scenario": "synthetic_180",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_180.npz",
+      "sha256": "a32814bd8b38bc0838f60ab27c75bbd2cc4e855028f8df2104e8837a8f61b2f9"
+    },
+    {
+      "scenario": "synthetic_185",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_185.npz",
+      "sha256": "c21bdec892b4349a04a18bcf1907ed085a9a1fd28eb61eba098e17472f71af43"
+    },
+    {
+      "scenario": "synthetic_188",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_188.npz",
+      "sha256": "204c0c6e049cbeaeca99ea5c840859fe70a4bd3460d7fdcb6ee13a1036074e1c"
+    },
+    {
+      "scenario": "synthetic_192",
+      "path": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived/msi_capacity_v1/runs/s_monthly_width512/predictions/synthetic_192.npz",
+      "sha256": "25d60133c6d8ee562293ed606995b345416ff2a3e9e059a50b7ab5de449bf969"
+    }
+  ],
+  "trajectory_r2_difference_from_record": 0.0,
+  "final_rmse_difference_from_record": 0.0
+}

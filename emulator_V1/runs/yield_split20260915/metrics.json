@@ -1,0 +1,53 @@
+{
+  "site_split_seed": 20260915,
+  "model_training_seed": 20261009,
+  "selected_heatmaps": {
+    "scenario_order": [
+      "synthetic_032",
+      "synthetic_038",
+      "synthetic_040",
+      "synthetic_042",
+      "synthetic_050",
+      "synthetic_053",
+      "synthetic_059",
+      "synthetic_076",
+      "synthetic_083",
+      "synthetic_146",
+      "synthetic_152",
+      "synthetic_164",
+      "synthetic_165",
+      "synthetic_166",
+      "synthetic_168",
+      "synthetic_169",
+      "synthetic_180",
+      "synthetic_185",
+      "synthetic_188",
+      "synthetic_192",
+      "realistic_003",
+      "realistic_006"
+    ]
+  },
+  "crop_summaries": [
+    {
+      "crop": "corn",
+      "median_r2": 0.939867957162877,
+      "scored_cells": 19500,
+      "negative_cells": 208,
+      "negative_percent": 1.0666666666666667
+    },
+    {
+      "crop": "soybean",
+      "median_r2": 0.9687761002894597,
+      "scored_cells": 19500,
+      "negative_cells": 32,
+      "negative_percent": 0.1641025641025641
+    },
+    {
+      "crop": "winter_wheat",
+      "median_r2": 0.8751576585416466,
+      "scored_cells": 18525,
+      "negative_cells": 588,
+      "negative_percent": 3.174089068825911
+    }
+  ]
+}

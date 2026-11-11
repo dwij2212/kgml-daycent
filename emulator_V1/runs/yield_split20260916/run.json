@@ -1,0 +1,17 @@
+{
+  "target": "yield",
+  "arm": "y_season_context_pairloss",
+  "site_split_seed": 20260916,
+  "model_training_seed": 20261009,
+  "input_root": "/export/scratch2/aravi032/KGML_Midwest_Daily_2026_derived",
+  "frozen": true,
+  "original_run_directory": "/home/aravi032/kgml-daycent-v2.5/output/yield_site_splits_2026-10-17/splits/20260916/runs/y_season_context_pairloss",
+  "data_plan_sha256": "a1e8428a3985155f3fec31af1d4bea5fc340f273308308474bbc1d31617ef718",
+  "stats_sha256": "212f4457640cb7c2b0a15ec14ac554d157f4732a19f56bf1f9a6a4fc8f72458b",
+  "checkpoint_sha256": "76e4996e935800f293e94e1948ec760427bd314031d6c6a359934c87ae2a5e0a",
+  "selected_reference": false,
+  "completed_epochs": 75,
+  "best_epoch": 74,
+  "config_sha256": "0c7923f0354baf07c60f876a75d1469d8c991781c0036a14bd8671a63778e544",
+  "config_origin": "reconstructed_from_recorded_final_recipe_on_2026-10-17"
+}

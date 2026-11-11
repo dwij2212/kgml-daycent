@@ -1,0 +1,181 @@
+{
+  "site_split_seed": 20260916,
+  "model_training_seed": 20261009,
+  "years": [
+    2001,
+    2023
+  ],
+  "n_test_sites": 975,
+  "n_scenarios": 22,
+  "overall": {
+    "n": 461657,
+    "r2": 0.9892409169185011,
+    "sse": 51000213.985226884,
+    "sst": 4740200777.232199,
+    "daycent_mean": 224.1838715427022,
+    "rmse": 10.510570427876809,
+    "bias": 0.32087671757854735
+  },
+  "per_crop": {
+    "corn": {
+      "n": 161906,
+      "r2": 0.9745485697837843,
+      "sse": 25587364.366413064,
+      "sst": 1005340923.8318869,
+      "daycent_mean": 334.9598982810986,
+      "rmse": 12.571332264748547,
+      "bias": -0.1412394091284636
+    },
+    "soybean": {
+      "n": 173976,
+      "r2": 0.9839118560836195,
+      "sse": 2907353.4947802983,
+      "sst": 180714040.71790534,
+      "daycent_mean": 143.07064899854694,
+      "rmse": 4.087937515250712,
+      "bias": 0.14722363836009808
+    },
+    "winter_wheat": {
+      "n": 125775,
+      "r2": 0.9265627215060498,
+      "sse": 22505496.124033526,
+      "sst": 306458743.9182885,
+      "daycent_mean": 193.7839559810656,
+      "rmse": 13.376642875907427,
+      "bias": 1.1559460216591217
+    }
+  },
+  "trajectory_median_checks": {
+    "corn": {
+      "current": 0.937663321425397,
+      "recorded": 0.9376577562854889,
+      "difference": 5.5651399081257935e-06
+    },
+    "soybean": {
+      "current": 0.9699729085809625,
+      "recorded": 0.9699742685591459,
+      "difference": -1.3599781834017222e-06
+    },
+    "winter_wheat": {
+      "current": 0.8780839786336929,
+      "recorded": 0.8780799472512227,
+      "difference": 4.031382470182088e-06
+    }
+  },
+  "checkpoint_sha256": "76e4996e935800f293e94e1948ec760427bd314031d6c6a359934c87ae2a5e0a",
+  "plan_sha256": "a1e8428a3985155f3fec31af1d4bea5fc340f273308308474bbc1d31617ef718",
+  "stats_sha256": "212f4457640cb7c2b0a15ec14ac554d157f4732a19f56bf1f9a6a4fc8f72458b",
+  "prediction_origin": "checkpoint reevaluation on GTX 1080 Ti",
+  "sources": [
+    {
+      "scenario": "realistic_003",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/realistic_003.npz",
+      "sha256": "9ffbe03290191558bb52b51b177a118cb708caa69f1cbc2b50166e577cee6758"
+    },
+    {
+      "scenario": "realistic_006",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/realistic_006.npz",
+      "sha256": "2a9703dc26e653d137812ad60a961c0ea756e31dcdc05d34549753f298fc5364"
+    },
+    {
+      "scenario": "synthetic_032",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_032.npz",
+      "sha256": "00f1ecf78177c53bbb650e29b5f4d29f000a56f24d1e3a45a03e4825180bdae9"
+    },
+    {
+      "scenario": "synthetic_038",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_038.npz",
+      "sha256": "a695cd3bc2eeba41de506aba07e1796957fdcd7cdddaa8d79186eb910a21891e"
+    },
+    {
+      "scenario": "synthetic_040",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_040.npz",
+      "sha256": "f17bc9da9bb44b45f0a8bbc2dbca7fd4fbc836f49cf58c717af8837e85c7703d"
+    },
+    {
+      "scenario": "synthetic_042",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_042.npz",
+      "sha256": "57d202ca75a0feaaf13d64fa2d09af649bacbca66c24e8e3fcb2e5a7a47d3bfd"
+    },
+    {
+      "scenario": "synthetic_050",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_050.npz",
+      "sha256": "c028b2ec1be9619b34b870dcf90fbd8f8747e4b1e0e80571125c98ce852a2625"
+    },
+    {
+      "scenario": "synthetic_053",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_053.npz",
+      "sha256": "3d50e515009ac031ed736d7f86e7256383d3810614765dae6d07a97e61540063"
+    },
+    {
+      "scenario": "synthetic_059",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_059.npz",
+      "sha256": "3270a85460204968a175fb8346742ef7b74a66567992886c9bee051f13106e7f"
+    },
+    {
+      "scenario": "synthetic_076",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_076.npz",
+      "sha256": "8d088e3cf2db0ee6f1f94751479396e6c4994cb4c77d194a7adaa9ea336029c2"
+    },
+    {
+      "scenario": "synthetic_083",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_083.npz",
+      "sha256": "abbdbbc1646b2fae2292285135c814d43d2034b5412b612189c6f0d1762f21e9"
+    },
+    {
+      "scenario": "synthetic_146",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_146.npz",
+      "sha256": "50721256ef6db8c25ab4993721772856d9721024f3aa7b69ec1c21b3734890c6"
+    },
+    {
+      "scenario": "synthetic_152",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_152.npz",
+      "sha256": "02978dc21e00226657733d8460ed0450234f9cf14dd3f8c762ce9f3ee343f244"
+    },
+    {
+      "scenario": "synthetic_164",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_164.npz",
+      "sha256": "4e7c59173d4e31b1bfe9d0343f974b6228d77f0f7dd4be2f242db21dc591b8cb"
+    },
+    {
+      "scenario": "synthetic_165",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_165.npz",
+      "sha256": "9bd41ad604f1fed35f50900934bbf0c9967a8e3b89d2d3a69358e10ba57691b0"
+    },
+    {
+      "scenario": "synthetic_166",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_166.npz",
+      "sha256": "230b02525d3569bde80368100819fb1262467dbef2d144b8c942628d45a0b7ca"
+    },
+    {
+      "scenario": "synthetic_168",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_168.npz",
+      "sha256": "71cd321ae0211036bfb891baec46bf10f4692a035dfa884178025546a3083d19"
+    },
+    {
+      "scenario": "synthetic_169",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_169.npz",
+      "sha256": "efa5459391375dd257e6e12eb1b82731e9cc7b76ceae87126fcd777091b316c9"
+    },
+    {
+      "scenario": "synthetic_180",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_180.npz",
+      "sha256": "8a1fdd90579bc6dae7a7f01c2c0a765ff51e28fc23bcd0a5e64b8f544d6fa138"
+    },
+    {
+      "scenario": "synthetic_185",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_185.npz",
+      "sha256": "3a0318e51b8e0576eff0b6eb311a390360afe25f2733ff539de440c47dfdfbb1"
+    },
+    {
+      "scenario": "synthetic_188",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_188.npz",
+      "sha256": "2259fd514c5cc73ec2303dc59d936b6389b5cae165b44d4a7e9cdf3bd36c9187"
+    },
+    {
+      "scenario": "synthetic_192",
+      "path": "/home/aravi032/kgml-daycent-v2.5/runs/yield_full_period_2026-10-20/split20260916/predictions/synthetic_192.npz",
+      "sha256": "013aa713debf06135a2711aaa70b16a89ae7b19608b67bd3d6705841a010c2dc"
+    }
+  ]
+}

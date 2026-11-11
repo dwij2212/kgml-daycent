@@ -1,0 +1,76 @@
+{
+  "name": "msi_capacity_v1",
+  "created_epoch": 1791600342.7732487,
+  "arms": {
+    "y_season_context_width512": {
+      "context": true,
+      "paired": false,
+      "pair_weight": 0.0,
+      "weight_decay": 0.0001,
+      "seed": 20261009,
+      "hidden_dim": 512
+    },
+    "y_season_context_width128": {
+      "context": true,
+      "paired": false,
+      "pair_weight": 0.0,
+      "weight_decay": 0.0001,
+      "seed": 20261009,
+      "hidden_dim": 128
+    },
+    "s_monthly_positive": {
+      "policy": "reset8",
+      "epochs": 60,
+      "hidden_dim": 256,
+      "positive": true,
+      "seed": 20261008
+    },
+    "s_monthly_width512": {
+      "policy": "reset8",
+      "epochs": 60,
+      "hidden_dim": 512,
+      "positive": false,
+      "seed": 20261008
+    }
+  },
+  "initialization": "All from random weights. No pretrained weights. Existing fixed holdouts and training-only normalization retained.",
+  "yield_training": {
+    "epochs": 75,
+    "steps_per_epoch": 1024,
+    "batch_size": 256,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "scheduler": "cosine to zero"
+  },
+  "soc_training": {
+    "epochs": 60,
+    "steps_per_epoch": 512,
+    "effective_batch": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0,
+    "scheduler": "cosine to .00002",
+    "seed": 20261008,
+    "warmup_epochs": 20,
+    "monthly_loss_weight": 0.5
+  },
+  "selection": "Same 128 fixed validation sites, 18 allowed scenarios. Yield balanced crop/group normalized MSE. SOC autonomous 24-year pool plus SOMSC normalized loss. No test metrics for selection.",
+  "split_policy": "Existing 7805 train / 975 validation / 975 test; 176 train scenarios; 22 reserved scenarios excluded from optimization and selection.",
+  "evidence": {
+    "yield_lowdecay_best_interim_val": 0.0997890970773167,
+    "yield_lowdecay_wheat_r2": 0.7703,
+    "season_reference_25ep_val": 0.18438362992472118,
+    "SOC_full24_completed_best_val": 6.211170301973148,
+    "SOC_monthly8_prior_val": 0.19486867399225757
+  },
+  "interpretation": "Iterated internal benchmark. Completion is based on crop and management effects, annual SOC changes and long rollout drift, not aggregate stock/yield R2 alone.",
+  "yield_improvement_v1_plan.json_sha256": "73340ab7aa7f714800cb6ad063426a7a7500bc896fcfd56a1e784f028e7179e4",
+  "yield_improvement_v1_stats.json_sha256": "3767510c6189528f8d9a9d52e1f0d5317cca33ca732440edaac275e8bf69a0fd",
+  "soc_followup_v1_plan.json_sha256": "97c28908b603e83c7730b55f024cde6696138dc02a14cbe8cf4833a7db42ca36",
+  "soc_followup_v1_stats.json_sha256": "245329678a1deb0b4d960a36c9675866aa77a5a72bbdf97abcd95032dd6cec05",
+  "hypotheses": {
+    "yield_capacity": "Matched width128 and width512 compared with delivery context width256; all remaining hyperparameters fixed.",
+    "soc_capacity": "Width512 compared with delivery monthly K8 width256, 60 epochs.",
+    "soc_positivity": "Width256 with smooth nonnegative annual and auxiliary monthly pool outputs, compared with delivery monthly K8; same weights at initialization and same sampling."
+  },
+  "validation_reference_campaign": "msi_delivery_v1"
+}
